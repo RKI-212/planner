@@ -98,6 +98,9 @@ nav.tabs a.on{color:var(--accent)}
 .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;vertical-align:1px;margin-left:4px}
 .badge.lec{background:var(--lec-bg);color:var(--lec)} .badge.pz{background:var(--pz-bg);color:var(--pz)}
 .badge.lr{background:var(--lr-bg);color:var(--lr)} .badge.ksr{background:var(--ksr-bg);color:var(--ksr)}
+.maplink{display:inline-block;margin-top:8px;font-size:13px;font-weight:600;color:var(--accent);text-decoration:none;padding:5px 10px;border-radius:8px;background:var(--accent-soft)}
+.live{margin-top:6px;font-size:13px;font-weight:600;padding:5px 9px;border-radius:8px;background:var(--pz-bg);color:var(--pz)}
+.live.warn{background:var(--warn-bg);color:var(--warn)}
 .empty{text-align:center;padding:26px 10px}
 .empty .big{font-size:34px}
 textarea{width:100%;min-height:84px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);
@@ -151,13 +154,16 @@ const DATA = {
   pairs: { 1:["08:00","09:30"], 2:["09:40","11:10"], 3:["11:20","12:50"], 4:["13:00","14:30"],
            5:["14:40","16:10"], 6:["16:20","17:50"], 7:["18:00","19:30"] },
   buildings: {
-    "А": { group:"km", park:10, addr:"ул. Карла Маркса, 68" },
-    "В": { group:"km", park:10, addr:"ул. Карла Маркса, 72" },
-    "Д": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
-    "Л": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
-    "М": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
-    "Г": { group:"st", park:8,  addr:"ул. Попова, 10 (рядом с Д)" }
+    "А": { group:"km", park:10, addr:"ул. Карла Маркса, 68", geo:"Казань, улица Карла Маркса, 68" },
+    "В": { group:"km", park:10, addr:"ул. Карла Маркса, 72", geo:"Казань, улица Карла Маркса, 72" },
+    "Д": { group:"st", park:8,  addr:"Сибирский тракт, 12", geo:"Казань, Сибирский тракт, 12" },
+    "Л": { group:"st", park:8,  addr:"Сибирский тракт, 12", geo:"Казань, Сибирский тракт, 12" },
+    "М": { group:"st", park:8,  addr:"Сибирский тракт, 12", geo:"Казань, Сибирский тракт, 12" },
+    "Г": { group:"st", park:8,  addr:"ул. Попова, 10 (рядом с Д)", geo:"Казань, улица Попова, 10" }
   },
+  // Живое время в пути через API Яндекс Карт (пробки на текущий момент)
+  yandex: { apiKey:"ab30aa23-383b-433d-904c-d2e555696faf", home:"Казань, улица Рихарда Зорге, 13В",
+            refreshMin:20, windowBeforeMin:180 },
   groupsName: { km:"Карла Маркса", st:"Сибирский тракт" },
   road: { drive:15, drivePeak:25, buffer:5, betweenCampuses:15,
           peaks:[["07:30","09:00"],["16:30","19:00"]], peakDays:[1,2,3,4,5] },
@@ -302,7 +308,7 @@ function planDay(d){
     let dep=f.st - R.drive - fb.park - R.buffer, drive=R.drive;
     if (isPeak(dep,dow) || isPeak(f.st-fb.park,dow)){ drive=R.drivePeak; dep=f.st - drive - fb.park - R.buffer; }
     dep=floor5(dep); plan.dep=dep; plan.start=f.st;
-    items.push({ t:dep, end:f.st, kind:"road", title:"Выезд из общаги",
+    items.push({ t:dep, end:f.st, kind:"road", from:"home", to:bOf(f.r), live:"dep", st:f.st, park:fb.park, title:"Выезд из общаги",
       meta:`Корпус ${bOf(f.r)} · ${DATA.groupsName[fb.group]} · ${drive} мин дорога${drive===R.drivePeak?" (час пик)":""} + ${fb.park} мин парковка + ${R.buffer} мин запас` });
     bl.forEach((b,i)=>{
       const cls = DATA.types[b.t]||"pz";
@@ -314,7 +320,7 @@ function planDay(d){
         const gap=n.st-b.en;
         const g1=DATA.buildings[bOf(b.r)].group, g2=DATA.buildings[bOf(n.r)].group;
         if (g1!==g2 && gap<=40){
-          items.push({ t:b.en, end:n.st, kind:"road", title:`Переезд: ${DATA.groupsName[g1]} → ${DATA.groupsName[g2]}`,
+          items.push({ t:b.en, end:n.st, kind:"road", from:bOf(b.r), to:bOf(n.r), title:`Переезд: ${DATA.groupsName[g1]} → ${DATA.groupsName[g2]}`,
             meta:`~${R.betweenCampuses} мин + парковка. Между парами ${gap} мин.` });
         } else if (gap>10){
           const pb=DATA.buildings[bOf(b.r)], nb=DATA.buildings[bOf(n.r)];
@@ -330,7 +336,7 @@ function planDay(d){
     const l=bl[bl.length-1], lb=DATA.buildings[bOf(l.r)];
     const leave=l.en+lb.park, drv=isPeak(leave,dow)?R.drivePeak:R.drive, home=leave+drv;
     plan.end=l.en; plan.home=home;
-    items.push({ t:l.en, end:home, kind:"road", title:`Домой — в общаге ~${fmt(home)}`,
+    items.push({ t:l.en, end:home, kind:"road", from:bOf(l.r), to:"home", title:`Домой — в общаге ~${fmt(home)}`,
       meta:`${lb.park} мин до машины + ${drv} мин дорога${drv===R.drivePeak?" (вечерний час пик)":""}` });
   }
   // зал
@@ -407,6 +413,7 @@ function renderDay(){
       <div class="t">${esc(it.title)}${it.badge?`<span class="badge ${it.cls}">${it.badge}</span>`:""}</div>
       <div class="m">${esc(it.meta||"")}</div>
       ${(it.notes||[]).map(n=>`<div class="note">${esc(n)}</div>`).join(" ")}
+      ${it.from ? liveHtml(it, isToday) + `<a class="maplink" href="${mapUrl(it.from,it.to)}" target="_blank" rel="noopener">Маршрут в Яндекс Картах ↗</a>` : ""}
     </div></div>`;
   });
   h += `</div>`;
@@ -431,7 +438,8 @@ function updateLive(){
   const cur=plan.items.find(it=>it.t>=0 && it.t<=n && n<it.end);
   const next=plan.items.find(it=>it.t>n);
   if (cur && cur.kind==="lesson") msg=`Сейчас: ${cur.title} — до ${fmt(cur.end)}`;
-  else if (next && next.title==="Выезд из общаги") msg = `Выезд через ${dur(next.t-n)} — в ${fmt(next.t)}`;
+  else if (next && next.live==="dep"){ const ld=liveDep(next); const t=ld!=null?ld:next.t;
+    msg = t<=n ? `Пора выезжать! (по Яндексу — в ${fmt(t)})` : `Выезд через ${dur(t-n)} — в ${fmt(t)}${ld!=null?" (по пробкам Яндекса)":""}`; }
   else if (cur && cur.kind==="gap") msg=`Окно до ${fmt(cur.end)}`;
   else if (cur && cur.kind==="gym") msg=`Зал до ${fmt(cur.end)}`;
   else if (next) msg=`Дальше: ${next.title} в ${fmt(next.t)}`;
@@ -496,6 +504,7 @@ function renderInfo(){
     <tr><td>Запас</td><td colspan="2">${R.buffer} мин</td></tr>
     <tr><td>Час пик</td><td colspan="2">будни 7:30–9:00 и 16:30–19:00; в выходные пробок нет</td></tr>
   </table></div>
+  <p class="muted small" style="margin:2px 2px 0">За 3 часа до выезда и в дороге приложение спрашивает у Яндекс Карт реальное время с пробками (при открытии и каждые 20 минут, пока оно открыто) и пересчитывает время выезда.</p>
   <h2 class="sec">Корпуса</h2><div class="card"><table class="k">
     ${Object.entries(DATA.buildings).map(([k,b])=>`<tr><td><b>${k}</b></td><td>${esc(b.addr)}</td></tr>`).join("")}
   </table></div>
@@ -512,6 +521,63 @@ function renderInfo(){
   </div>
   <p class="muted small" style="margin:12px 2px">Подгруппы: 1-я по основам программирования, 2-я по основам ИБ. Английский — одна пара в неделю (спаренная в чт нечётной недели не посещается).</p>`;
   view.innerHTML=h;
+}
+
+/* ===== Живое время через Яндекс ===== */
+const LIVE = { loading:null, ok:false, res:{}, last:0, err:"" };
+const Y = DATA.yandex;
+const addrOf = k => k==="home" ? Y.home : DATA.buildings[k].geo;
+function mapUrl(from,to){
+  return "https://yandex.ru/maps/?rtext="+encodeURIComponent(addrOf(from))+"~"+encodeURIComponent(addrOf(to))+"&rtt=auto";
+}
+function loadYmaps(){
+  if (LIVE.loading) return LIVE.loading;
+  LIVE.loading = new Promise((ok,fail)=>{
+    if (!Y.apiKey) return fail(new Error("нет ключа"));
+    const sc=document.createElement("script");
+    sc.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(Y.apiKey)+"&lang=ru_RU";
+    sc.onload=()=>window.ymaps ? ymaps.ready(()=>ok(window.ymaps)) : fail(new Error("API не загрузилось"));
+    sc.onerror=()=>fail(new Error("нет связи с Яндексом"));
+    document.head.appendChild(sc);
+  });
+  LIVE.loading.catch(()=>{ LIVE.loading=null; });
+  return LIVE.loading;
+}
+function routeMin(from,to){
+  return loadYmaps().then(ym=>new Promise((ok,fail)=>{
+    const m=new ym.multiRouter.MultiRouteModel([addrOf(from),addrOf(to)],{routingMode:"auto"});
+    const t=setTimeout(()=>fail(new Error("таймаут")),15000);
+    m.events.add("requestsuccess",()=>{ clearTimeout(t);
+      const r=m.getRoutes()[0]; if(!r) return fail(new Error("маршрут не найден"));
+      const p=r.properties.get("durationInTraffic")||r.properties.get("duration");
+      ok(Math.round(p.value/60)); });
+    m.events.add("requestfail",e=>{ clearTimeout(t); fail(new Error("ошибка маршрута")); });
+  }));
+}
+const liveKey = it => it.from+">"+it.to;
+function liveFresh(it){ const r=LIVE.res[liveKey(it)]; return r && (Date.now()-r.at) < (Y.refreshMin+10)*60000 ? r : null; }
+function liveDep(it){ const r=liveFresh(it); return r && it.live==="dep" ? Math.floor(it.st - r.min - it.park - DATA.road.buffer) : null; }
+function inLiveWindow(it){ const n=nowMin(); return n>=it.t-Y.windowBeforeMin && n<=it.end; }
+function liveHtml(it, isToday){
+  if (!isToday || !inLiveWindow(it)) return "";
+  const r=liveFresh(it);
+  if (!r) return LIVE.err ? `<div class="live warn">Яндекс недоступен: ${esc(LIVE.err)}. Считаю по обычному времени.</div>` : `<div class="live">Узнаю время у Яндекса…</div>`;
+  const at=new Date(r.at), upd=at.getHours()+":"+String(at.getMinutes()).padStart(2,"0");
+  if (it.live==="dep"){
+    const ld=liveDep(it), diff=it.t-ld;
+    return `<div class="live${diff>0?" warn":""}">Яндекс сейчас: ${r.min} мин в пути → выезжайте в ${fmt(ld)}${diff>0?` (на ${diff} мин раньше)`:diff<0?` (можно на ${-diff} мин позже)`:""} · обновлено ${upd}</div>`;
+  }
+  return `<div class="live">Яндекс сейчас: ${r.min} мин в пути · обновлено ${upd}</div>`;
+}
+function refreshLive(force){
+  if (!force && Date.now()-LIVE.last < 5*60000) return;
+  if (navigator.onLine===false) return;
+  const items=planDay(today()).items.filter(it=>it.from && inLiveWindow(it));
+  if (!items.length) return;
+  LIVE.last=Date.now();
+  Promise.all(items.map(it=>routeMin(it.from,it.to).then(min=>{ LIVE.res[liveKey(it)]={min, at:Date.now()}; LIVE.err=""; })
+    .catch(e=>{ LIVE.err=e.message||"ошибка"; })))
+    .then(()=>{ if((location.hash||"#day")==="#day" && dayNum(state.sel)===dayNum(today())) renderDay(); });
 }
 
 function route(){
@@ -537,6 +603,9 @@ view.addEventListener("touchend", e=>{ if(tx==null) return; const dx=e.changedTo
   if (Math.abs(dx)>70){ state.sel=addDays(state.sel, dx<0?1:-1); renderDay(); } }, {passive:true});
 window.addEventListener("hashchange", route);
 setInterval(()=>{ if((location.hash||"#day")==="#day") updateLive(); }, 30000);
+setInterval(()=>refreshLive(true), DATA.yandex.refreshMin*60000);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") refreshLive(false); });
+setTimeout(()=>refreshLive(true), 300);
 route();
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 </script>
