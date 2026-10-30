@@ -67,7 +67,7 @@ function planDay(d){
     bl.forEach((b,i)=>{
       var cls = DATA.types[b.t]||"pz";
       var pairs = b.pFrom===b.pTo ? `${b.pFrom} пара` : `${b.pFrom}–${b.pTo} пары`;
-      items.push({ t:b.st, end:b.en, kind:"lesson", cls, title:b.s, badge:b.t,
+      items.push({ t:b.st, end:b.en, kind:"lesson", cls, title:b.s, badge:b.t, subj:b.s, pFrom:b.pFrom, pTo:b.pTo, room:b.r,
         meta:`${pairs} · ${fmt(b.st)}–${fmt(b.en)} · ${b.r} · ${b.tch}`, notes:b.notes });
       var n=bl[i+1];
       if (n){
@@ -132,4 +132,26 @@ function sleepPlan(d){
   if (p.gym && p.gym.st!=null){ var g=p.gym.st-G.driveFromHome-G.park; if (first==null || g<first){ first=g; what="зал в "+fmt(p.gym.st); } }
   if (first==null) return null;
   return { first:first, what:what };
+}
+
+// ---- Пропуски и пробег ----
+// attend: { "YYYY-MM-DD": { "<пара>": { miss:true, exc:bool } } } — хранится на устройстве, передаётся параметром
+function missedPairs(attend, d){ return (attend && attend[iso(d)]) || {}; }
+function attendedBlocks(attend, d){
+  var m=missedPairs(attend,d);
+  return blocks(lessonsFor(d).lessons).filter(function(b){
+    for (var p=b.pFrom;p<=b.pTo;p++) if (!(m[p]&&m[p].miss)) return true; return false; });
+}
+// Пробег за день: дорога в вуз (с учётом пропусков), переезды, зал
+function dayKm(d, attend, gymDone, dist){
+  var bl=attendedBlocks(attend,d), uni=0, gym=0, trips=0;
+  if (bl.length){
+    var g=function(b){ return DATA.buildings[bOf(b.r)].group; };
+    uni += dist[g(bl[0])];
+    for (var i=1;i<bl.length;i++) if (g(bl[i])!==g(bl[i-1])) uni += dist.between;
+    uni += dist[g(bl[bl.length-1])];
+    trips=1;
+  }
+  if (gymDone) gym = 2*dist.gym;
+  return { uni:uni, gym:gym, trips:trips };
 }

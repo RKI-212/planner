@@ -192,6 +192,11 @@ function renderDay(){
     const tm = it.t>=0 ? `${fmt(it.t)}${it.end>it.t && it.kind!=="road"?`<small>${fmt(it.end)}</small>`:""}` : "—";
     let extra="";
     if (it.from) extra = liveHtml(it, isToday) + `<a class="maplink" href="${mapUrl(it.from,it.to)}" target="_blank" rel="noopener">Маршрут в Яндекс Картах ↗</a>`;
+    if (it.kind==="lesson" && dayNum(d)<=dayNum(today())){
+      const m=missedPairs(store.json("attend",{}), d);
+      const ps=[]; for(let p=it.pFrom;p<=it.pTo;p++) ps.push(p);
+      extra = `<div class="attbtns">${ps.map(p=>{ const x=m[p]; return `<button class="ab ${x&&x.miss?(x.exc?"exc":"miss"):""}" data-att="${iso(d)}|${p}">${ps.length>1?p+" пара: ":""}${x&&x.miss?(x.exc?"не был · уваж.":"не был"):"был"}</button>`; }).join("")}</div>`;
+    }
     if (it.kind==="gym"){
       const g=log[iso(d)];
       extra = `<div class="gymbtns"><button class="gb ${g&&g.done?"on":""}" data-gym="1">✓ Был</button><button class="gb miss ${g&&g.done===false?"on":""}" data-gym="0">Пропустил</button><a class="gb link" href="#gym" data-gymgo="${iso(d)}">Упражнения${g&&g.ex&&g.ex.length?` (${g.ex.length})`:""} ›</a></div>`;
@@ -532,6 +537,127 @@ function importBackup(ev){
 }
 
 /* =====================================================================
+   ПРОПУСКИ
+   ===================================================================== */
+function absStats(){
+  const att=store.json("attend",{}), lim=store.json("absLimit",{}), t0=today(), subs={};
+  allSubjects().forEach(s=>subs[s]={ s, held:0, miss:0, exc:0, list:[], limit: lim[s]!=null?lim[s]:null });
+  for (let d=parseISO(DATA.semester.from); dayNum(d)<=dayNum(t0); d=addDays(d,1)){
+    const m=missedPairs(att,d);
+    lessonsFor(d).lessons.forEach(l=>{ const S=subs[l.s]; if(!S) return; S.held++;
+      const x=m[l.p]; if (x&&x.miss){ if (x.exc) S.exc++; else S.miss++; S.list.push({ d:new Date(d), p:l.p, t:l.t, exc:!!x.exc }); } });
+  }
+  return Object.values(subs);
+}
+function renderAbs(){
+  const st=absStats(), held=st.reduce((s,x)=>s+x.held,0), miss=st.reduce((s,x)=>s+x.miss,0), exc=st.reduce((s,x)=>s+x.exc,0);
+  const pct = held? Math.round((held-miss-exc)/held*100):100;
+  let h=`<div class="gstats">
+    <div class="gs"><b style="color:var(--accent)">${pct}%</b><span>посещаемость</span></div>
+    <div class="gs"><b style="color:var(--gym)">${miss}</b><span>пропущено пар</span></div>
+    <div class="gs"><b style="color:var(--pz)">${exc}</b><span>по уважительной</span></div></div>
+  <div class="card small muted">Отмечайте «не был» прямо на паре в плане дня. Повторное нажатие делает пропуск уважительным (справка), третье — снимает отметку. Пропуски по уважительной в лимит не идут.</div>`;
+  const risky=st.filter(x=>x.limit!=null && x.miss>=x.limit-1 && x.limit>0);
+  if (risky.length) h+=`<div class="card warnbox">${risky.map(x=>`⚠ <b>${esc(x.s)}</b>: пропущено ${x.miss} из ${x.limit} допустимых${x.miss>=x.limit?" — лимит исчерпан!":" — остался последний"}`).join("<br>")}</div>`;
+  st.sort((a,b)=>(b.miss+b.exc)-(a.miss+a.exc)||b.held-a.held).forEach(x=>{
+    const p = x.held? Math.round((x.held-x.miss-x.exc)/x.held*100):100;
+    const limPct = x.limit? Math.min(100, Math.round(x.miss/x.limit*100)) : 0;
+    h+=`<div class="card subjabs"><div class="row between"><b>${esc(x.s)}</b><span class="chip" style="background:var(--accent-soft);color:var(--accent)">${p}%</span></div>
+      <div class="small muted">Прошло пар: ${x.held} (${x.held*2} ак. ч) · пропущено: <b style="color:var(--gym)">${x.miss}</b>${x.exc?` · уважит.: ${x.exc}`:""}</div>
+      <div class="row limrow"><label class="small">Лимит пропусков <input type="number" min="0" max="50" data-lim="${esc(x.s)}" value="${x.limit!=null?x.limit:""}" placeholder="нет"></label>
+      ${x.limit?`<div class="bar" style="flex:1"><i style="width:${limPct}%;background:${limPct>=100?"var(--gym)":limPct>=70?"var(--warn)":"var(--pz)"}"></i></div>`:""}</div>
+      ${x.list.length?`<details><summary class="small link">Даты пропусков (${x.list.length})</summary><div class="small">${x.list.slice().reverse().map(e=>`<div class="absrow"><span>${shortDate(e.d)}, ${e.p} пара · ${e.t}</span>${e.exc?'<em>уважит.</em>':""}</div>`).join("")}</div></details>`:""}
+    </div>`;
+  });
+  view.innerHTML=h;
+  view.querySelectorAll("[data-lim]").forEach(inp=>inp.addEventListener("change",()=>{ const l=store.json("absLimit",{}); const v=inp.value.trim();
+    if (v==="") delete l[inp.dataset.lim]; else l[inp.dataset.lim]=Math.max(0,+v); store.put("absLimit",l); renderAbs(); }));
+}
+
+/* =====================================================================
+   БЕНЗИН
+   ===================================================================== */
+const FUEL_DEF = { cons:11, price:64, dist:{ st:8, km:10, between:3, gym:3 } };
+const fuelCfg = () => { const c=store.json("fuelCfg",{}); return { ...FUEL_DEF, ...c, dist:{ ...FUEL_DEF.dist, ...(c.dist||{}) } }; };
+const MONTHS_NOM = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+function fuelMonth(y, mo){
+  const cfg=fuelCfg(), att=store.json("attend",{}), log=gymLog(), trips=store.json("trips",[]), t0=today();
+  const r={ uni:0, gym:0, extra:0, days:0, fUni:0, fGym:0 };
+  const last=new Date(y,mo+1,0);
+  for (let d=new Date(y,mo,1); d<=last; d=addDays(d,1)){
+    const past = dayNum(d)<=dayNum(t0);
+    const gymDone = past ? !!(log[iso(d)]&&log[iso(d)].done) : isGymDay(d);
+    const k=dayKm(d, past?att:{}, gymDone, cfg.dist);
+    if (past){ r.uni+=k.uni; r.gym+=k.gym; r.days+=k.trips; } else { r.fUni+=k.uni; r.fGym+=k.gym; }
+  }
+  const ym=`${y}-${String(mo+1).padStart(2,"0")}`;
+  const mt=trips.filter(t=>t.date.startsWith(ym)); r.extra=mt.reduce((s,t)=>s+(+t.km||0),0); r.trips=mt;
+  r.km=r.uni+r.gym+r.extra; r.fKm=r.fUni+r.fGym;
+  r.l=r.km*cfg.cons/100; r.rub=r.l*cfg.price;
+  r.fl=(r.km+r.fKm)*cfg.cons/100; r.frub=r.fl*cfg.price;
+  const fills=store.json("fuel",[]).filter(f=>f.date.startsWith(ym)); r.fills=fills;
+  r.paid=fills.reduce((s,f)=>s+(+f.rub||0),0); r.liters=fills.reduce((s,f)=>s+(+f.l||0),0);
+  return r;
+}
+function realConsumption(){
+  const f=store.json("fuel",[]).filter(x=>x.odo).sort((a,b)=>a.odo-b.odo);
+  if (f.length<2) return null;
+  const km=f[f.length-1].odo-f[0].odo, l=f.slice(1).reduce((s,x)=>s+(+x.l||0),0);
+  return km>50 ? l/km*100 : null;
+}
+function renderFuel(){
+  const t0=today(); if (!state.fuelYM) state.fuelYM=[t0.getFullYear(), t0.getMonth()];
+  const [y,mo]=state.fuelYM, r=fuelMonth(y,mo), cfg=fuelCfg(), real=realConsumption();
+  const isCur = y===t0.getFullYear() && mo===t0.getMonth();
+  const rub = n => Math.round(n).toLocaleString("ru-RU")+" ₽";
+  let h=`<div class="row between monthsw"><button class="arr" data-fm="-1">‹</button><b>${MONTHS_NOM[mo]} ${y}</b><button class="arr" data-fm="1">›</button></div>
+  <div class="gstats">
+    <div class="gs"><b style="color:var(--accent)">${Math.round(r.km)}</b><span>км проехано</span></div>
+    <div class="gs"><b style="color:var(--lr)">${r.l.toFixed(1)}</b><span>л (расчёт)</span></div>
+    <div class="gs"><b style="color:var(--pz)">${rub(r.rub)}</b><span>на бензин</span></div></div>`;
+  if (isCur && r.fKm>0) h+=`<div class="card small">До конца месяца по плану ещё ~${Math.round(r.fKm)} км. <b>Прогноз за месяц: ~${Math.round(r.km+r.fKm)} км · ${r.fl.toFixed(0)} л · ${rub(r.frub)}</b></div>`;
+  h+=`<div class="card"><table class="k">
+    <tr><td>Вуз (${r.days} дн.)</td><td style="text-align:right">${Math.round(r.uni)} км</td></tr>
+    <tr><td>Зал</td><td style="text-align:right">${Math.round(r.gym)} км</td></tr>
+    <tr><td>Другие поездки</td><td style="text-align:right">${Math.round(r.extra)} км</td></tr>
+    <tr><td><b>Заправки по факту</b></td><td style="text-align:right"><b>${rub(r.paid)}</b>${r.liters?` · ${r.liters.toFixed(1)} л`:""}</td></tr>
+  </table><p class="small muted" style="margin:8px 0 0">Пробег считается сам по дням с парами (пропущенные пары не в счёт) и по отмеченным тренировкам. Расход ${cfg.cons} л/100 км${real?` · <b>по заправкам у вас ${real.toFixed(1)} л/100 км</b>`:""}.</p></div>
+
+  <h2 class="sec">Заправка</h2><form class="card addf" id="fillF">
+    <div class="row g2"><input type="date" id="fD" value="${iso(t0)}"><input id="fL" inputmode="decimal" placeholder="Литров"></div>
+    <div class="row g2"><input id="fR" inputmode="decimal" placeholder="Сумма, ₽"><input id="fO" inputmode="numeric" placeholder="Пробег, км (необяз.)"></div>
+    <button class="primary" type="submit">Добавить заправку</button></form>
+
+  <h2 class="sec">Другая поездка</h2><form class="card addf" id="tripF">
+    <div class="row g2"><input type="date" id="tD" value="${iso(t0)}"><input id="tK" inputmode="decimal" placeholder="Км"></div>
+    <input id="tN" placeholder="Куда (необязательно)"><button class="primary ghost" type="submit">Добавить поездку</button></form>`;
+  if (r.fills.length || r.trips.length){
+    h+=`<h2 class="sec">За ${MONTHS_NOM[mo].toLowerCase()}</h2><div class="card">`;
+    [...r.fills.map(f=>({...f,k:"fill"})), ...r.trips.map(t=>({...t,k:"trip"}))].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{
+      h+=`<div class="ex"><div>${e.k==="fill"?`⛽ <b>${rub(+e.rub||0)}</b> · ${e.l||"?"} л${e.l&&e.rub?` · ${(e.rub/e.l).toFixed(1)} ₽/л`:""}${e.odo?` · ${e.odo} км`:""}`:`🚗 <b>${e.km} км</b>${e.note?" · "+esc(e.note):""}`}<div class="small muted">${shortDate(parseISO(e.date))}</div></div><button class="tdel" data-fdel="${e.k}|${e.id}">×</button></div>`;
+    });
+    h+=`</div>`;
+  }
+  h+=`<details class="card sl-cfg"><summary class="small">Настройки расчёта</summary>
+    <div class="cfggrid">
+      <label>Расход, л/100 км<input type="number" step="0.1" data-fc="cons" value="${cfg.cons}"></label>
+      <label>Цена, ₽/л<input type="number" step="0.1" data-fc="price" value="${cfg.price}"></label>
+      <label>Общага → Сибирский тракт (Д, Л, М, Г), км<input type="number" step="0.5" data-fd="st" value="${cfg.dist.st}"></label>
+      <label>Общага → Карла Маркса (А, В), км<input type="number" step="0.5" data-fd="km" value="${cfg.dist.km}"></label>
+      <label>Между кампусами, км<input type="number" step="0.5" data-fd="between" value="${cfg.dist.between}"></label>
+      <label>Общага → зал, км (в одну сторону)<input type="number" step="0.5" data-fd="gym" value="${cfg.dist.gym}"></label>
+    </div><p class="small muted">Расстояния примерные — поправьте по одометру или Яндекс Картам. Когда добавите хотя бы две заправки с пробегом, появится ваш реальный расход.</p></details>`;
+  view.innerHTML=h;
+  const num=v=>{ const n=parseFloat(String(v).replace(",",".")); return isFinite(n)?n:null; };
+  document.getElementById("fillF").onsubmit=e=>{ e.preventDefault(); const l=num(fL.value), r2=num(fR.value);
+    if (!l && !r2){ fL.focus(); return; } const f=store.json("fuel",[]); f.push({ id:uid(), date:fD.value||iso(today()), l, rub:r2, odo:num(fO.value) }); store.put("fuel",f); toast("Заправка добавлена"); renderFuel(); };
+  document.getElementById("tripF").onsubmit=e=>{ e.preventDefault(); const k=num(tK.value); if(!k){ tK.focus(); return; }
+    const t=store.json("trips",[]); t.push({ id:uid(), date:tD.value||iso(today()), km:k, note:tN.value.trim() }); store.put("trips",t); toast("Поездка добавлена"); renderFuel(); };
+  view.querySelectorAll("[data-fc],[data-fd]").forEach(inp=>inp.addEventListener("change",()=>{ const c=store.json("fuelCfg",{}); const v=num(inp.value); if (v==null) return;
+    if (inp.dataset.fc) c[inp.dataset.fc]=v; else { c.dist=c.dist||{}; c.dist[inp.dataset.fd]=v; } store.put("fuelCfg",c); const y2=scrollY; renderFuel(); scrollTo(0,y2); document.querySelector("details.sl-cfg").open=true; }));
+}
+
+/* =====================================================================
    ИНФО
    ===================================================================== */
 function renderInfo(){
@@ -570,10 +696,10 @@ function animateIn(){
   setTimeout(()=>els.forEach(el=>el.classList.remove("rise")), 1400);
 }
 
-const VIEWS = { day:renderDay, week:renderWeek, study:renderStudy, gym:renderGym, info:renderInfo };
+const VIEWS = { day:renderDay, week:renderWeek, study:renderStudy, abs:renderAbs, gym:renderGym, fuel:renderFuel, info:renderInfo };
 function route(anim){
   let v=hashNow(); if (v==="subjects") v="study"; if (!VIEWS[v]) v="day";
-  document.querySelectorAll("nav.tabs a").forEach(a=>a.classList.toggle("on", a.dataset.v===v));
+  document.querySelectorAll("nav.tabs a, .infobtn").forEach(a=>a.classList.toggle("on", a.dataset.v===v));
   VIEWS[v]();
   const p=parity(today()); const c=document.getElementById("parityChip");
   c.className="chip "+p; c.textContent=parityName(p);
@@ -585,6 +711,12 @@ view.addEventListener("click", e=>{
   const go=e.target.closest("[data-go]"), sh=e.target.closest("[data-shift]"), par=e.target.closest("[data-par]");
   const tk=e.target.closest("[data-task]"), del=e.target.closest("[data-del]"), gb=e.target.closest("[data-gym]");
   const gsel=e.target.closest("[data-gsel]"), gg=e.target.closest("[data-gymgo]"), exd=e.target.closest("[data-exdel]"), cp=e.target.closest("[data-copy]");
+  const at=e.target.closest("[data-att]"), fm=e.target.closest("[data-fm]"), fdel=e.target.closest("[data-fdel]");
+  if (at){ const [dd,p]=at.dataset.att.split("|"); const A=store.json("attend",{}); A[dd]=A[dd]||{}; const x=A[dd][p];
+    if (!x) A[dd][p]={miss:true,exc:false}; else if (!x.exc) x.exc=true; else delete A[dd][p];
+    if (!Object.keys(A[dd]).length) delete A[dd]; store.put("attend",A); const y=scrollY; renderDay(); scrollTo(0,y); return; }
+  if (fm){ let [y,m]=state.fuelYM; m+=+fm.dataset.fm; if(m<0){m=11;y--;} if(m>11){m=0;y++;} state.fuelYM=[y,m]; renderFuel(); return; }
+  if (fdel){ const [k,id]=fdel.dataset.fdel.split("|"); const key=k==="fill"?"fuel":"trips"; store.put(key, store.json(key,[]).filter(x=>x.id!==id)); toast("Удалено"); renderFuel(); return; }
   if (tk){ setTaskStatus(tk.dataset.task, +tk.dataset.next); route(false); return; }
   if (del){ deleteTask(del.dataset.del); toast("Удалено"); route(false); return; }
   if (gb){ const key=gb.dataset.gd||iso(state.sel); const g=gymLog(); g[key]=g[key]||{}; const v=gb.dataset.gym==="1";

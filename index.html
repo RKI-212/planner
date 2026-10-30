@@ -220,6 +220,21 @@ h2.sec.first{margin-top:4px}
 @keyframes bolt{0%,44%{opacity:0}45%{opacity:.9}47%{opacity:.15}49%{opacity:.7}53%{opacity:0}100%{opacity:0}}
 #splash .vig{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 55%,rgba(0,0,0,0) 45%,rgba(0,0,0,.75) 100%);pointer-events:none}
 #splash.still *{animation:none!important} #splash.still .cam,#splash.still .la,#splash.still .lb{opacity:1}
+/* пропуски, бензин */
+nav.tabs a{font-size:10.5px;padding:8px 1px 9px;white-space:nowrap}
+.infobtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--card);border:1px solid var(--line);color:var(--muted);text-decoration:none;font-size:17px;margin-left:6px}
+.infobtn.on{color:#fff;background:var(--accent);border-color:var(--accent)}
+.attbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.ab{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:var(--pz-bg);color:var(--pz)}
+.ab.miss{background:var(--gym);color:#fff} .ab.exc{background:var(--warn-bg);color:var(--warn)}
+.warnbox{background:var(--warn-bg);color:var(--warn);border-color:transparent;font-size:14px;line-height:1.6}
+.limrow{gap:10px;margin-top:8px} .limrow input{width:60px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 6px;margin-left:4px}
+.subjabs details{margin-top:6px} .absrow{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)} .absrow em{font-style:normal;color:var(--warn);font-weight:600}
+.monthsw{margin:0 2px 10px} .monthsw b{font-size:17px} .monthsw .arr{font-size:22px;color:var(--muted);width:36px;height:32px}
+.row.g2{gap:8px} .row.g2 > *{flex:1;min-width:0}
+.addf input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:42px}
+.cfggrid{display:grid;gap:8px;margin:10px 0} .cfggrid label{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13.5px}
+.cfggrid input{width:80px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 7px}
 /* итоги и сон */
 .summ .sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 8px;text-align:center}
 .summ .sgrid b{display:block;font-size:24px;color:var(--accent);letter-spacing:-.5px}
@@ -270,7 +285,7 @@ nav.tabs a{transition:color .2s} nav.tabs a .ic{transition:transform .25s} nav.t
 <div class="wrap">
   <header class="top">
     <h1>Мой семестр</h1>
-    <span id="parityChip" class="chip"></span>
+    <div class="row"><span id="parityChip" class="chip"></span><a class="infobtn" href="#info" data-v="info" aria-label="Инфо и настройки">ⓘ</a></div>
   </header>
   <main id="view"></main>
 </div>
@@ -278,8 +293,9 @@ nav.tabs a{transition:color .2s} nav.tabs a .ic{transition:transform .25s} nav.t
   <a href="#day" data-v="day"><span class="ic">◷</span>День</a>
   <a href="#week" data-v="week"><span class="ic">▦</span>Неделя</a>
   <a href="#study" data-v="study"><span class="ic">✎</span>Учёба</a>
+  <a href="#abs" data-v="abs"><span class="ic">✕</span>Пропуски</a>
   <a href="#gym" data-v="gym"><span class="ic">♥</span>Зал</a>
-  <a href="#info" data-v="info"><span class="ic">ⓘ</span>Инфо</a>
+  <a href="#fuel" data-v="fuel"><span class="ic">⛽</span>Бензин</a>
 </div></nav>
 
 
