@@ -575,86 +575,71 @@ function renderAbs(){
 }
 
 /* =====================================================================
-   БЕНЗИН
+   БЕНЗИН: заправки с фото чеков
    ===================================================================== */
-const FUEL_DEF = { cons:11, price:64, dist:{ st:8, km:10, between:3, gym:3 } };
-const fuelCfg = () => { const c=store.json("fuelCfg",{}); return { ...FUEL_DEF, ...c, dist:{ ...FUEL_DEF.dist, ...(c.dist||{}) } }; };
 const MONTHS_NOM = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
-function fuelMonth(y, mo){
-  const cfg=fuelCfg(), att=store.json("attend",{}), log=gymLog(), trips=store.json("trips",[]), t0=today();
-  const r={ uni:0, gym:0, extra:0, days:0, fUni:0, fGym:0 };
-  const last=new Date(y,mo+1,0);
-  for (let d=new Date(y,mo,1); d<=last; d=addDays(d,1)){
-    const past = dayNum(d)<=dayNum(t0);
-    const gymDone = past ? !!(log[iso(d)]&&log[iso(d)].done) : isGymDay(d);
-    const k=dayKm(d, past?att:{}, gymDone, cfg.dist);
-    if (past){ r.uni+=k.uni; r.gym+=k.gym; r.days+=k.trips; } else { r.fUni+=k.uni; r.fGym+=k.gym; }
-  }
-  const ym=`${y}-${String(mo+1).padStart(2,"0")}`;
-  const mt=trips.filter(t=>t.date.startsWith(ym)); r.extra=mt.reduce((s,t)=>s+(+t.km||0),0); r.trips=mt;
-  r.km=r.uni+r.gym+r.extra; r.fKm=r.fUni+r.fGym;
-  r.l=r.km*cfg.cons/100; r.rub=r.l*cfg.price;
-  r.fl=(r.km+r.fKm)*cfg.cons/100; r.frub=r.fl*cfg.price;
-  const fills=store.json("fuel",[]).filter(f=>f.date.startsWith(ym)); r.fills=fills;
-  r.paid=fills.reduce((s,f)=>s+(+f.rub||0),0); r.liters=fills.reduce((s,f)=>s+(+f.l||0),0);
-  return r;
+const PHOTOS = {
+  db:null,
+  open(){ if (this.db) return Promise.resolve(this.db);
+    return new Promise((ok,fail)=>{ try{ const r=indexedDB.open("semestr",1);
+      r.onupgradeneeded=()=>r.result.createObjectStore("photos");
+      r.onsuccess=()=>{ this.db=r.result; ok(this.db); }; r.onerror=()=>fail(r.error); }catch(e){ fail(e); } }); },
+  put(id,blob){ return this.open().then(db=>new Promise((ok,fail)=>{ const tx=db.transaction("photos","readwrite"); tx.objectStore("photos").put(blob,id); tx.oncomplete=ok; tx.onerror=()=>fail(tx.error); })); },
+  get(id){ return this.open().then(db=>new Promise((ok,fail)=>{ const q=db.transaction("photos").objectStore("photos").get(id); q.onsuccess=()=>ok(q.result); q.onerror=()=>fail(q.error); })); },
+  del(id){ return this.open().then(db=>new Promise(ok=>{ const tx=db.transaction("photos","readwrite"); tx.objectStore("photos").delete(id); tx.oncomplete=ok; tx.onerror=ok; })).catch(()=>{}); }
+};
+function shrinkImage(file, max, q){
+  return new Promise((ok,fail)=>{ const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{ const k=Math.min(1, max/Math.max(img.width,img.height)), c=document.createElement("canvas");
+      c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url); c.toBlob(b=>b?ok({blob:b, thumb:max<=240?c.toDataURL("image/jpeg",q):null}):fail(new Error("canvas")),"image/jpeg",q); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); fail(new Error("img")); }; img.src=url; });
 }
-function realConsumption(){
-  const f=store.json("fuel",[]).filter(x=>x.odo).sort((a,b)=>a.odo-b.odo);
-  if (f.length<2) return null;
-  const km=f[f.length-1].odo-f[0].odo, l=f.slice(1).reduce((s,x)=>s+(+x.l||0),0);
-  return km>50 ? l/km*100 : null;
-}
+const fuelDraft = { photo:null, thumb:null, preview:null, liters:null };
 function renderFuel(){
-  const t0=today(); if (!state.fuelYM) state.fuelYM=[t0.getFullYear(), t0.getMonth()];
-  const [y,mo]=state.fuelYM, r=fuelMonth(y,mo), cfg=fuelCfg(), real=realConsumption();
-  const isCur = y===t0.getFullYear() && mo===t0.getMonth();
-  const rub = n => Math.round(n).toLocaleString("ru-RU")+" ₽";
-  let h=`<div class="row between monthsw"><button class="arr" data-fm="-1">‹</button><b>${MONTHS_NOM[mo]} ${y}</b><button class="arr" data-fm="1">›</button></div>
-  <div class="gstats">
-    <div class="gs"><b style="color:var(--accent)">${Math.round(r.km)}</b><span>км проехано</span></div>
-    <div class="gs"><b style="color:var(--lr)">${r.l.toFixed(1)}</b><span>л (расчёт)</span></div>
-    <div class="gs"><b style="color:var(--pz)">${rub(r.rub)}</b><span>на бензин</span></div></div>`;
-  if (isCur && r.fKm>0) h+=`<div class="card small">До конца месяца по плану ещё ~${Math.round(r.fKm)} км. <b>Прогноз за месяц: ~${Math.round(r.km+r.fKm)} км · ${r.fl.toFixed(0)} л · ${rub(r.frub)}</b></div>`;
-  h+=`<div class="card"><table class="k">
-    <tr><td>Вуз (${r.days} дн.)</td><td style="text-align:right">${Math.round(r.uni)} км</td></tr>
-    <tr><td>Зал</td><td style="text-align:right">${Math.round(r.gym)} км</td></tr>
-    <tr><td>Другие поездки</td><td style="text-align:right">${Math.round(r.extra)} км</td></tr>
-    <tr><td><b>Заправки по факту</b></td><td style="text-align:right"><b>${rub(r.paid)}</b>${r.liters?` · ${r.liters.toFixed(1)} л`:""}</td></tr>
-  </table><p class="small muted" style="margin:8px 0 0">Пробег считается сам по дням с парами (пропущенные пары не в счёт) и по отмеченным тренировкам. Расход ${cfg.cons} л/100 км${real?` · <b>по заправкам у вас ${real.toFixed(1)} л/100 км</b>`:""}.</p></div>
-
-  <h2 class="sec">Заправка</h2><form class="card addf" id="fillF">
-    <div class="row g2"><input type="date" id="fD" value="${iso(t0)}"><input id="fL" inputmode="decimal" placeholder="Литров"></div>
-    <div class="row g2"><input id="fR" inputmode="decimal" placeholder="Сумма, ₽"><input id="fO" inputmode="numeric" placeholder="Пробег, км (необяз.)"></div>
-    <button class="primary" type="submit">Добавить заправку</button></form>
-
-  <h2 class="sec">Другая поездка</h2><form class="card addf" id="tripF">
-    <div class="row g2"><input type="date" id="tD" value="${iso(t0)}"><input id="tK" inputmode="decimal" placeholder="Км"></div>
-    <input id="tN" placeholder="Куда (необязательно)"><button class="primary ghost" type="submit">Добавить поездку</button></form>`;
-  if (r.fills.length || r.trips.length){
-    h+=`<h2 class="sec">За ${MONTHS_NOM[mo].toLowerCase()}</h2><div class="card">`;
-    [...r.fills.map(f=>({...f,k:"fill"})), ...r.trips.map(t=>({...t,k:"trip"}))].sort((a,b)=>b.date.localeCompare(a.date)).forEach(e=>{
-      h+=`<div class="ex"><div>${e.k==="fill"?`⛽ <b>${rub(+e.rub||0)}</b> · ${e.l||"?"} л${e.l&&e.rub?` · ${(e.rub/e.l).toFixed(1)} ₽/л`:""}${e.odo?` · ${e.odo} км`:""}`:`🚗 <b>${e.km} км</b>${e.note?" · "+esc(e.note):""}`}<div class="small muted">${shortDate(parseISO(e.date))}</div></div><button class="tdel" data-fdel="${e.k}|${e.id}">×</button></div>`;
-    });
-    h+=`</div>`;
-  }
-  h+=`<details class="card sl-cfg"><summary class="small">Настройки расчёта</summary>
-    <div class="cfggrid">
-      <label>Расход, л/100 км<input type="number" step="0.1" data-fc="cons" value="${cfg.cons}"></label>
-      <label>Цена, ₽/л<input type="number" step="0.1" data-fc="price" value="${cfg.price}"></label>
-      <label>Общага → Сибирский тракт (Д, Л, М, Г), км<input type="number" step="0.5" data-fd="st" value="${cfg.dist.st}"></label>
-      <label>Общага → Карла Маркса (А, В), км<input type="number" step="0.5" data-fd="km" value="${cfg.dist.km}"></label>
-      <label>Между кампусами, км<input type="number" step="0.5" data-fd="between" value="${cfg.dist.between}"></label>
-      <label>Общага → зал, км (в одну сторону)<input type="number" step="0.5" data-fd="gym" value="${cfg.dist.gym}"></label>
-    </div><p class="small muted">Расстояния примерные — поправьте по одометру или Яндекс Картам. Когда добавите хотя бы две заправки с пробегом, появится ваш реальный расход.</p></details>`;
+  const fills=store.json("fuel",[]).filter(f=>f.l!=null).sort((a,b)=>(b.date+(b.at||"")).localeCompare(a.date+(a.at||"")));
+  const lastL = fuelDraft.liters || (fills[0] && Math.round(fills[0].l)) || 30;
+  let h=`<form class="card fuelf" id="fillF">
+    <b>Новая заправка</b>
+    <label class="photobox ${fuelDraft.preview?"has":""}">${fuelDraft.preview?`<img src="${fuelDraft.preview}" alt="Чек">`:`<span class="pi">📷</span><span>Фото чека</span>`}
+      <input type="file" id="fPh" accept="image/*" hidden></label>
+    <div class="wheelwrap"><div class="wheel" id="wheel">${[...Array(40)].map((_,i)=>`<div class="wi" data-v="${i+1}">${i+1}</div>`).join("")}</div><div class="wband"></div><span class="wunit">л</span></div>
+    <input type="date" id="fD" value="${iso(today())}">
+    <button class="primary" type="submit">Сохранить</button>
+  </form>`;
+  if (!fills.length) h+=`<div class="card muted small">Пока заправок нет. Сфотографируйте чек и выберите литры на рулетке.</div>`;
+  let curM="";
+  fills.forEach(f=>{
+    const m=f.date.slice(0,7);
+    if (m!==curM){ curM=m; const sum=fills.filter(x=>x.date.startsWith(m)).reduce((s,x)=>s+x.l,0); const d=parseISO(m+"-01");
+      h+=`<h2 class="sec">${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()} <span class="muted small" style="font-weight:600">· ${sum} л</span></h2>`; }
+    h+=`<div class="card fillrow">${f.thumb?`<button class="fthumb" data-photo="${f.id}"><img src="${f.thumb}" alt="Чек"></button>`:`<div class="fthumb none">⛽</div>`}
+      <div style="flex:1"><b>${f.l} л</b><div class="small muted">${dateTitle(parseISO(f.date))}</div></div>
+      <button class="tdel" data-fdel="${f.id}" aria-label="Удалить">×</button></div>`;
+  });
   view.innerHTML=h;
-  const num=v=>{ const n=parseFloat(String(v).replace(",",".")); return isFinite(n)?n:null; };
-  document.getElementById("fillF").onsubmit=e=>{ e.preventDefault(); const l=num(fL.value), r2=num(fR.value);
-    if (!l && !r2){ fL.focus(); return; } const f=store.json("fuel",[]); f.push({ id:uid(), date:fD.value||iso(today()), l, rub:r2, odo:num(fO.value) }); store.put("fuel",f); toast("Заправка добавлена"); renderFuel(); };
-  document.getElementById("tripF").onsubmit=e=>{ e.preventDefault(); const k=num(tK.value); if(!k){ tK.focus(); return; }
-    const t=store.json("trips",[]); t.push({ id:uid(), date:tD.value||iso(today()), km:k, note:tN.value.trim() }); store.put("trips",t); toast("Поездка добавлена"); renderFuel(); };
-  view.querySelectorAll("[data-fc],[data-fd]").forEach(inp=>inp.addEventListener("change",()=>{ const c=store.json("fuelCfg",{}); const v=num(inp.value); if (v==null) return;
-    if (inp.dataset.fc) c[inp.dataset.fc]=v; else { c.dist=c.dist||{}; c.dist[inp.dataset.fd]=v; } store.put("fuelCfg",c); const y2=scrollY; renderFuel(); scrollTo(0,y2); document.querySelector("details.sl-cfg").open=true; }));
+  // рулетка
+  const wh=document.getElementById("wheel"), IH=44;
+  const setActive=()=>{ const v=Math.min(40,Math.max(1,Math.round(wh.scrollTop/IH)+1)); fuelDraft.liters=v;
+    wh.querySelectorAll(".wi").forEach(e=>{ const d=Math.abs(+e.dataset.v-v); e.className="wi"+(d===0?" on":d===1?" n1":d===2?" n2":""); }); };
+  requestAnimationFrame(()=>{ wh.scrollTop=(lastL-1)*IH; setActive(); });
+  let raf=0; wh.addEventListener("scroll",()=>{ cancelAnimationFrame(raf); raf=requestAnimationFrame(setActive); },{passive:true});
+  wh.addEventListener("click",e=>{ const it=e.target.closest(".wi"); if(it) wh.scrollTo({top:(+it.dataset.v-1)*IH, behavior:"smooth"}); });
+  document.getElementById("fPh").onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
+    try{ const big=await shrinkImage(f,1600,.78), th=await shrinkImage(f,220,.6); fuelDraft.photo=big.blob; fuelDraft.thumb=th.thumb; if(fuelDraft.preview) URL.revokeObjectURL(fuelDraft.preview); fuelDraft.preview=URL.createObjectURL(big.blob); renderFuel(); }
+    catch(err){ toast("Не получилось открыть фото"); } };
+  document.getElementById("fillF").onsubmit=async e=>{ e.preventDefault();
+    const id=uid(), rec={ id, date:document.getElementById("fD").value||iso(today()), at:new Date().toISOString(), l:fuelDraft.liters||lastL, thumb:fuelDraft.thumb||null };
+    if (fuelDraft.photo){ try{ await PHOTOS.put(id, fuelDraft.photo); }catch(err){ toast("Фото не сохранилось — мало места"); rec.thumb=null; } }
+    const all=store.json("fuel",[]); all.push(rec); store.put("fuel",all);
+    if(fuelDraft.preview) URL.revokeObjectURL(fuelDraft.preview); fuelDraft.photo=null; fuelDraft.thumb=null; fuelDraft.preview=null; toast(`Заправка ${rec.l} л сохранена`); renderFuel(); };
+}
+function showPhoto(id){
+  PHOTOS.get(id).then(b=>{ if(!b){ toast("Фото не найдено на этом устройстве"); return; }
+    const url=URL.createObjectURL(b), ov=document.createElement("div"); ov.className="photoview";
+    ov.innerHTML=`<img src="${url}" alt="Чек"><button aria-label="Закрыть">×</button>`;
+    ov.onclick=()=>{ ov.classList.remove("show"); setTimeout(()=>{ ov.remove(); URL.revokeObjectURL(url); },250); };
+    document.body.appendChild(ov); requestAnimationFrame(()=>ov.classList.add("show")); }).catch(()=>toast("Фото недоступно"));
 }
 
 /* =====================================================================
@@ -711,12 +696,13 @@ view.addEventListener("click", e=>{
   const go=e.target.closest("[data-go]"), sh=e.target.closest("[data-shift]"), par=e.target.closest("[data-par]");
   const tk=e.target.closest("[data-task]"), del=e.target.closest("[data-del]"), gb=e.target.closest("[data-gym]");
   const gsel=e.target.closest("[data-gsel]"), gg=e.target.closest("[data-gymgo]"), exd=e.target.closest("[data-exdel]"), cp=e.target.closest("[data-copy]");
-  const at=e.target.closest("[data-att]"), fm=e.target.closest("[data-fm]"), fdel=e.target.closest("[data-fdel]");
+  const at=e.target.closest("[data-att]"), fdel=e.target.closest("[data-fdel]");
   if (at){ const [dd,p]=at.dataset.att.split("|"); const A=store.json("attend",{}); A[dd]=A[dd]||{}; const x=A[dd][p];
     if (!x) A[dd][p]={miss:true,exc:false}; else if (!x.exc) x.exc=true; else delete A[dd][p];
     if (!Object.keys(A[dd]).length) delete A[dd]; store.put("attend",A); const y=scrollY; renderDay(); scrollTo(0,y); return; }
-  if (fm){ let [y,m]=state.fuelYM; m+=+fm.dataset.fm; if(m<0){m=11;y--;} if(m>11){m=0;y++;} state.fuelYM=[y,m]; renderFuel(); return; }
-  if (fdel){ const [k,id]=fdel.dataset.fdel.split("|"); const key=k==="fill"?"fuel":"trips"; store.put(key, store.json(key,[]).filter(x=>x.id!==id)); toast("Удалено"); renderFuel(); return; }
+  const ph=e.target.closest("[data-photo]");
+  if (ph){ showPhoto(ph.dataset.photo); return; }
+  if (fdel){ const id=fdel.dataset.fdel; store.put("fuel", store.json("fuel",[]).filter(x=>x.id!==id)); PHOTOS.del(id); toast("Удалено"); renderFuel(); return; }
   if (tk){ setTaskStatus(tk.dataset.task, +tk.dataset.next); route(false); return; }
   if (del){ deleteTask(del.dataset.del); toast("Удалено"); route(false); return; }
   if (gb){ const key=gb.dataset.gd||iso(state.sel); const g=gymLog(); g[key]=g[key]||{}; const v=gb.dataset.gym==="1";
