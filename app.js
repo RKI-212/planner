@@ -599,11 +599,17 @@ const fuelDraft = { photo:null, thumb:null, preview:null, liters:null };
 function renderFuel(){
   const fills=store.json("fuel",[]).filter(f=>f.l!=null).sort((a,b)=>(b.date+(b.at||"")).localeCompare(a.date+(a.at||"")));
   const lastL = fuelDraft.liters || (fills[0] && Math.round(fills[0].l)) || 30;
-  let h=`<form class="card fuelf" id="fillF">
+  const LIM=DATA.fuel.monthLimit, usedIn = ym => fills.filter(x=>x.date.startsWith(ym)).reduce((s,x)=>s+x.l,0);
+  const ym0=iso(today()).slice(0,7), used0=usedIn(ym0), left0=Math.max(0,LIM-used0), pct=Math.min(100,Math.round(used0/LIM*100));
+  let h=`<div class="card limcard"><div class="row between"><b>${MONTHS_NOM[today().getMonth()]}</b><span class="small muted">лимит ${LIM} л</span></div>
+    <div class="limnum"><b style="color:${pct>=100?"var(--gym)":pct>=80?"var(--warn)":"var(--pz)"}">${left0}</b><span>л осталось · заправлено ${used0} л</span></div>
+    <div class="bar"><i style="width:${pct}%;background:${pct>=100?"var(--gym)":pct>=80?"var(--warn)":"var(--pz)"}"></i></div></div>`;
+  h+=`<form class="card fuelf" id="fillF">
     <b>Новая заправка</b>
     <label class="photobox ${fuelDraft.preview?"has":""}">${fuelDraft.preview?`<img src="${fuelDraft.preview}" alt="Чек">`:`<span class="pi">📷</span><span>Фото чека</span>`}
       <input type="file" id="fPh" accept="image/*" hidden></label>
     <div class="wheelwrap"><div class="wheel" id="wheel">${[...Array(40)].map((_,i)=>`<div class="wi" data-v="${i+1}">${i+1}</div>`).join("")}</div><div class="wband"></div><span class="wunit">л</span></div>
+    <div id="limHint" class="small"></div>
     <input type="date" id="fD" value="${iso(today())}">
     <button class="primary" type="submit">Сохранить</button>
   </form>`;
@@ -612,7 +618,7 @@ function renderFuel(){
   fills.forEach(f=>{
     const m=f.date.slice(0,7);
     if (m!==curM){ curM=m; const sum=fills.filter(x=>x.date.startsWith(m)).reduce((s,x)=>s+x.l,0); const d=parseISO(m+"-01");
-      h+=`<h2 class="sec">${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()} <span class="muted small" style="font-weight:600">· ${sum} л</span></h2>`; }
+      h+=`<h2 class="sec">${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()} <span class="small" style="font-weight:600;color:${sum>LIM?"var(--gym)":"var(--muted)"}">· ${sum} из ${LIM} л</span></h2>`; }
     h+=`<div class="card fillrow">${f.thumb?`<button class="fthumb" data-photo="${f.id}"><img src="${f.thumb}" alt="Чек"></button>`:`<div class="fthumb none">⛽</div>`}
       <div style="flex:1"><b>${f.l} л</b><div class="small muted">${dateTitle(parseISO(f.date))}</div></div>
       <button class="tdel" data-fdel="${f.id}" aria-label="Удалить">×</button></div>`;
@@ -620,8 +626,13 @@ function renderFuel(){
   view.innerHTML=h;
   // рулетка
   const wh=document.getElementById("wheel"), IH=44;
+  const hint=()=>{ const ym=(document.getElementById("fD").value||iso(today())).slice(0,7), left=LIM-usedIn(ym), v=fuelDraft.liters||lastL, el=document.getElementById("limHint");
+    el.className="small"; if (left-v<0){ el.className="small limwarn"; el.textContent=`Превысит лимит месяца на ${v-left} л (осталось ${Math.max(0,left)} л)`; }
+    else el.textContent=`После заправки останется ${left-v} л из ${LIM}`;
+    wh.querySelectorAll(".wi").forEach(e=>e.classList.toggle("over", +e.dataset.v>left)); };
   const setActive=()=>{ const v=Math.min(40,Math.max(1,Math.round(wh.scrollTop/IH)+1)); fuelDraft.liters=v;
-    wh.querySelectorAll(".wi").forEach(e=>{ const d=Math.abs(+e.dataset.v-v); e.className="wi"+(d===0?" on":d===1?" n1":d===2?" n2":""); }); };
+    wh.querySelectorAll(".wi").forEach(e=>{ const d=Math.abs(+e.dataset.v-v); e.className="wi"+(d===0?" on":d===1?" n1":d===2?" n2":""); }); hint(); };
+  document.getElementById("fD").addEventListener("change",hint);
   requestAnimationFrame(()=>{ wh.scrollTop=(lastL-1)*IH; setActive(); });
   let raf=0; wh.addEventListener("scroll",()=>{ cancelAnimationFrame(raf); raf=requestAnimationFrame(setActive); },{passive:true});
   wh.addEventListener("click",e=>{ const it=e.target.closest(".wi"); if(it) wh.scrollTo({top:(+it.dataset.v-1)*IH, behavior:"smooth"}); });
