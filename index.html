@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Семестр">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f5f2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Мой семестр — КНИТУ</title>
+<style>
+:root{
+  --bg:#f5f5f2; --card:#ffffff; --ink:#1d1d1b; --muted:#6b6b66; --line:#e4e3de;
+  --accent:#2f5bd3; --accent-soft:#e7edfc;
+  --lec:#2f5bd3; --lec-bg:#e7edfc;
+  --pz:#1f8a5b; --pz-bg:#e3f4ea;
+  --lr:#c4651a; --lr-bg:#fbeedf;
+  --ksr:#7b47c9; --ksr-bg:#efe7fa;
+  --gym:#c23b6b; --gym-bg:#fbe6ee;
+  --road:#5b5b55; --road-bg:#eeeeea;
+  --warn:#9a6b00; --warn-bg:#fdf3d6;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#121211; --card:#1c1c1a; --ink:#ecebe6; --muted:#9d9c95; --line:#2d2d2a;
+    --accent:#7d9cff; --accent-soft:#1f2741;
+    --lec:#8aa5ff; --lec-bg:#1e2640;
+    --pz:#5fcf98; --pz-bg:#16301f;
+    --lr:#f0a060; --lr-bg:#35251a;
+    --ksr:#b993ff; --ksr-bg:#2a2140;
+    --gym:#ff7fa8; --gym-bg:#3a1c27;
+    --road:#b9b8b0; --road-bg:#262624;
+    --warn:#f2c14e; --warn-bg:#352c13;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+.wrap{max-width:720px;margin:0 auto;padding:calc(12px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 104px calc(14px + env(safe-area-inset-left))}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 2px 10px}
+header.top h1{font-size:19px;margin:0;letter-spacing:-.2px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
+.chip.odd{background:var(--ksr-bg);color:var(--ksr)}
+.chip.even{background:var(--pz-bg);color:var(--pz)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:0 0 10px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.row{display:flex;align-items:center;gap:8px}
+.between{justify-content:space-between}
+/* nav */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+  display:flex;justify-content:center;z-index:10;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs .in{display:flex;max-width:720px;width:100%}
+nav.tabs a{flex:1;text-align:center;padding:9px 4px 10px;color:var(--muted);text-decoration:none;font-size:12px;font-weight:600}
+nav.tabs a .ic{display:block;font-size:19px;line-height:1.2;margin-bottom:1px}
+nav.tabs a.on{color:var(--accent)}
+/* day strip */
+.strip{display:grid;grid-template-columns:28px repeat(7,1fr) 28px;gap:4px;align-items:stretch;margin-bottom:10px}
+.strip .arr{display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--muted);border-radius:10px}
+.strip .d{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 0 5px;text-align:center;min-height:62px}
+.strip .d .w{font-size:11px;color:var(--muted);text-transform:uppercase}
+.strip .d .n{font-size:17px;font-weight:700;margin:1px 0}
+.strip .d .dots{display:flex;justify-content:center;gap:3px;height:6px}
+.strip .d .dots i{width:6px;height:6px;border-radius:50%;display:block}
+.strip .d.today .n{color:var(--accent)}
+.strip .d.sel{background:var(--accent);border-color:var(--accent);color:#fff}
+.strip .d.sel .w,.strip .d.sel .n{color:#fff}
+.strip .d.off{opacity:.55}
+.dayhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:2px 2px 8px}
+.dayhead h2{margin:0;font-size:20px;letter-spacing:-.2px}
+.todaybtn{font-size:13px;font-weight:600;color:var(--accent);padding:4px 8px;border-radius:8px;background:var(--accent-soft)}
+.summary{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.summary .s{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:13px}
+.summary .s b{display:block;font-size:16px}
+.status{border-radius:var(--radius);padding:10px 14px;margin-bottom:10px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
+/* timeline */
+.tl{position:relative;margin:0 0 10px}
+.it{display:grid;grid-template-columns:52px 1fr;gap:10px;margin-bottom:8px}
+.it .tm{font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;padding-top:11px;text-align:right}
+.it .tm small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.blk{border-radius:12px;padding:10px 12px;border:1px solid var(--line);background:var(--card);border-left-width:4px}
+.blk .t{font-weight:650}
+.blk .m{font-size:13px;color:var(--muted);margin-top:2px}
+.blk.lec{border-left-color:var(--lec)} .blk.pz{border-left-color:var(--pz)} .blk.lr{border-left-color:var(--lr)} .blk.ksr{border-left-color:var(--ksr)}
+.blk.road{background:var(--road-bg);border-color:transparent;border-left-color:var(--road)}
+.blk.gap{background:transparent;border-style:dashed;border-left-style:solid;border-left-color:var(--line)}
+.blk.gym{background:var(--gym-bg);border-color:transparent;border-left-color:var(--gym)}
+.blk.hol{background:var(--warn-bg);border-color:transparent;border-left-color:var(--warn)}
+.blk .note{margin-top:6px;font-size:13px;color:var(--warn);background:var(--warn-bg);padding:4px 8px;border-radius:8px;display:inline-block}
+.it.past{opacity:.45}
+.it.now .blk{box-shadow:0 0 0 2px var(--accent)}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:6px;vertical-align:1px;margin-left:4px}
+.badge.lec{background:var(--lec-bg);color:var(--lec)} .badge.pz{background:var(--pz-bg);color:var(--pz)}
+.badge.lr{background:var(--lr-bg);color:var(--lr)} .badge.ksr{background:var(--ksr-bg);color:var(--ksr)}
+.empty{text-align:center;padding:26px 10px}
+.empty .big{font-size:34px}
+textarea{width:100%;min-height:84px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);
+  font:inherit;padding:8px 10px;resize:vertical}
+/* week */
+.seg{display:flex;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:3px;margin-bottom:10px}
+.seg button{flex:1;padding:8px 6px;border-radius:9px;font-weight:600;font-size:14px;color:var(--muted)}
+.seg button.on{background:var(--accent);color:#fff}
+.wday h3{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+.wl{display:grid;grid-template-columns:22px 86px 1fr;gap:4px 8px;font-size:14px;padding:5px 0;border-top:1px solid var(--line)}
+.wl:first-of-type{border-top:0}
+.wl .p{font-weight:700;color:var(--muted)}
+.wl .tt{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px}
+.tag{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px}
+.tag.gym{background:var(--gym-bg);color:var(--gym)}
+.tag.road{background:var(--road-bg);color:var(--road)}
+/* subjects */
+.subj h3{margin:0 0 4px;font-size:16px}
+.subj ul{margin:6px 0 0;padding-left:18px}
+.subj li{margin:2px 0;font-size:14px}
+table.k{width:100%;border-collapse:collapse;font-size:14px}
+table.k td,table.k th{padding:6px 4px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+table.k th{font-size:12px;color:var(--muted);font-weight:600;border-top:0}
+h2.sec{font-size:17px;margin:16px 2px 8px}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 2px}
+@media (min-width:700px){ .strip .d{min-height:70px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Мой семестр</h1>
+    <span id="parityChip" class="chip"></span>
+  </header>
+  <main id="view"></main>
+</div>
+<nav class="tabs"><div class="in">
+  <a href="#day" data-v="day"><span class="ic">◷</span>День</a>
+  <a href="#week" data-v="week"><span class="ic">▦</span>Неделя</a>
+  <a href="#subjects" data-v="subjects"><span class="ic">≡</span>Предметы</a>
+  <a href="#info" data-v="info"><span class="ic">ⓘ</span>Инфо</a>
+</div></nav>
+
+<script>
+/* =====================================================================
+   ДАННЫЕ. Всё, что может меняться, — здесь.
+   ===================================================================== */
+const DATA = {
+  semester: { from: "2026-09-01", to: "2026-12-31" },
+  oddAnchorMonday: "2026-10-26",          // эта неделя — нечётная
+  pairs: { 1:["08:00","09:30"], 2:["09:40","11:10"], 3:["11:20","12:50"], 4:["13:00","14:30"],
+           5:["14:40","16:10"], 6:["16:20","17:50"], 7:["18:00","19:30"] },
+  buildings: {
+    "А": { group:"km", park:10, addr:"ул. Карла Маркса, 68" },
+    "В": { group:"km", park:10, addr:"ул. Карла Маркса, 72" },
+    "Д": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
+    "Л": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
+    "М": { group:"st", park:8,  addr:"Сибирский тракт, 12" },
+    "Г": { group:"st", park:8,  addr:"ул. Попова, 10 (рядом с Д)" }
+  },
+  groupsName: { km:"Карла Маркса", st:"Сибирский тракт" },
+  road: { drive:15, drivePeak:25, buffer:5, betweenCampuses:15,
+          peaks:[["07:30","09:00"],["16:30","19:00"]], peakDays:[1,2,3,4,5] },
+  gym: { name:"«Максимус», ул. Минская, 9", anchor:"2026-10-30", every:2,
+         workout:90, after:40, meal:40, driveFromHome:10, park:5,
+         overrides: {
+           "odd-5":  { start:"09:00", note:"Утром, до выезда в 12:30. Вечером после пар — примерно с 19:20 до 21:30." },
+           "even-4": { start:"10:00", note:"Утром, до выезда в 14:10. Вечером после пар — примерно с 19:20." },
+           "even-6": { note:"По ситуации: самый плотный день." }
+         } },
+  // Подписи типов занятий
+  types: { "ЛЕКЦ":"lec", "ПЗ":"pz", "ЛР":"lr", "КСР":"ksr" },
+  // Расписание: только те пары, на которые вы ходите (1 подгр. по программированию, 2 подгр. по ИБ, английский без спаренной пары)
+  schedule: {
+    odd: {
+      1: [
+        { p:1, s:"Основы программирования", t:"ЛЕКЦ", r:"А-Круглый зал", tch:"Проклов Р.С." },
+        { p:2, s:"Линейная и векторная алгебра", t:"ЛЕКЦ", r:"А-Круглый зал", tch:"Пауль С.В." },
+        { p:3, s:"Информатика", t:"ЛЕКЦ", r:"А-Круглый зал", tch:"Шустрова М.Л." },
+        { p:4, s:"Информатика", t:"ЛЕКЦ", r:"А-Круглый зал", tch:"Шустрова М.Л." }
+      ],
+      3: [
+        { p:2, s:"Физкультура (элективные курсы)", t:"ПЗ", r:"М-6(12)", tch:"Пастух Н.М.", to:"2026-12-06" },
+        { p:3, s:"Иностранный язык", t:"ПЗ", r:"Г-518", tch:"Волкова Е.В." },
+        { p:4, s:"Физика", t:"ЛЕКЦ", r:"Л-209", tch:"Холин К.В." }
+      ],
+      4: [
+        { p:3, s:"Математический анализ", t:"ЛЕКЦ", r:"Д-236", tch:"Михеев А.В." },
+        { p:4, s:"Основы российской государственности", t:"ПЗ", r:"Г-412", tch:"Булычев П.М." },
+        { p:5, s:"Основы российской государственности", t:"ПЗ", r:"Г-412", tch:"Булычев П.М." }
+      ],
+      5: [
+        { p:4, s:"Информатика", t:"ПЗ", r:"В-302а", tch:"Шустрова М.Л." },
+        { p:5, s:"Информатика", t:"ПЗ", r:"В-302а", tch:"Шустрова М.Л." },
+        { p:6, s:"Математический анализ", t:"КСР", r:"Л-217", tch:"Михеев А.В.", start:"16:30", from:"2026-10-01",
+          note:"Начало в 16:30. Опоздание до ~20 мин допускается (переезд из В)." }
+      ],
+      6: [
+        { p:2, s:"Основы программирования", t:"ЛР", r:"Д-229", tch:"Мухамадиев Р.Р.", note:"1 подгруппа" },
+        { p:3, s:"Основы программирования", t:"ЛР", r:"Д-229", tch:"Мухамадиев Р.Р.", note:"1 подгруппа" },
+        { p:4, s:"Основы программирования", t:"ЛР", r:"Д-229", tch:"Мухамадиев Р.Р.", note:"1 подгруппа" }
+      ]
+    },
+    even: {
+      1: [
+        { p:1, s:"Линейная и векторная алгебра", t:"ПЗ", r:"Д-229", tch:"Пауль С.В." },
+        { p:2, s:"Линейная и векторная алгебра", t:"ПЗ", r:"Д-229", tch:"Пауль С.В." },
+        { p:3, s:"Иностранный язык", t:"ПЗ", r:"Г", tch:"Волкова Е.В.", note:"Аудитория в расписании не указана" }
+      ],
+      3: [
+        { p:2, s:"Физкультура (элективные курсы)", t:"ПЗ", r:"М-6(12)", tch:"Пастух Н.М.", to:"2026-12-06" },
+        { p:3, s:"Основы российской государственности", t:"ЛЕКЦ", r:"Л-217", tch:"Тузиков А.Р." }
+      ],
+      4: [
+        { p:5, s:"Математический анализ", t:"ПЗ", r:"Д-504а", tch:"Михеев А.В." },
+        { p:6, s:"Математический анализ", t:"ПЗ", r:"Д-504а", tch:"Михеев А.В." }
+      ],
+      5: [
+        { p:4, s:"Линейная и векторная алгебра", t:"ПЗ", r:"Д-229", tch:"Пауль С.В.", from:"2026-11-02" },
+        { p:6, s:"Основы информационной безопасности", t:"ЛЕКЦ", r:"Д-236", tch:"Сафиуллина Л.Х." }
+      ],
+      6: [
+        { p:1, s:"Физика", t:"ЛР", r:"Д-110", tch:"Эндерс П.Я., Кадиров Д.М." },
+        { p:2, s:"Физика", t:"ЛР", r:"Д-110", tch:"Эндерс П.Я., Кадиров Д.М." },
+        { p:5, s:"Основы информационной безопасности", t:"ЛР", r:"В-302а", tch:"Сафиуллина Л.Х.", note:"2 подгруппа" },
+        { p:6, s:"Основы информационной безопасности", t:"ЛР", r:"В-302а", tch:"Сафиуллина Л.Х.", note:"2 подгруппа" },
+        { p:7, s:"Основы информационной безопасности", t:"ЛР", r:"В-302а", tch:"Сафиуллина Л.Х.", note:"2 подгруппа" }
+      ]
+    }
+  },
+  // Особые даты: праздники, отмены, переносы, разовые пары и заметки
+  // kind: "holiday" — пар нет; "cancel" — отменить пару p; "add" — разовая пара; "note" — пометка на день
+  exceptions: [
+    { date:"2026-11-04", kind:"holiday", title:"День народного единства", text:"Государственный выходной — пар нет." },
+    { date:"2026-11-06", kind:"note", title:"День Конституции Республики Татарстан",
+      text:"В Татарстане это нерабочий день. Уточните, будут ли пары." },
+    { date:"2026-12-31", kind:"holiday", title:"Выходной (перенос с 4 января)", text:"Нерабочий день — пар нет." }
+  ]
+};
+
+/* =====================================================================
+   ЛОГИКА
+   ===================================================================== */
+const WD = ["Вс","Пн","Вт","Ср","Чт","Пт","Сб"];
+const WD_FULL = ["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
+const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+
+const toMin = s => { const [h,m]=s.split(":").map(Number); return h*60+m; };
+const fmt = m => { m=Math.round(m); const h=Math.floor(m/60), mm=m%60; return h+":"+String(mm).padStart(2,"0"); };
+const floor5 = m => Math.floor(m/5)*5;
+const ceil5 = m => Math.ceil(m/5)*5;
+const dur = m => { const h=Math.floor(m/60), mm=m%60; return (h?h+" ч ":"")+(mm?mm+" мин":"").trim() || "0 мин"; };
+const parseISO = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const dayNum = d => Math.round(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);
+const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
+const mondayOf = d => addDays(d, -((d.getDay()+6)%7));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function parity(d){
+  const w = Math.floor((dayNum(mondayOf(d)) - dayNum(parseISO(DATA.oddAnchorMonday)))/7);
+  return (((w%2)+2)%2)===0 ? "odd" : "even";
+}
+const parityName = p => p==="odd" ? "Нечётная неделя" : "Чётная неделя";
+const bOf = room => DATA.buildings[room.trim()[0]] ? room.trim()[0] : "Д";
+const isPeak = (min, dow) => DATA.road.peakDays.includes(dow) &&
+  DATA.road.peaks.some(([a,b]) => min>=toMin(a) && min<toMin(b));
+const inSemester = d => iso(d)>=DATA.semester.from && iso(d)<=DATA.semester.to;
+const isGymDay = d => (((dayNum(d)-dayNum(parseISO(DATA.gym.anchor))) % DATA.gym.every)+DATA.gym.every) % DATA.gym.every === 0;
+
+function lessonsFor(d){
+  const key = iso(d), dow=d.getDay(), p=parity(d);
+  const ex = DATA.exceptions.filter(e=>e.date===key);
+  if (!inSemester(d)) return { lessons:[], ex, outside:true };
+  if (ex.some(e=>e.kind==="holiday")) return { lessons:[], ex, holiday:true };
+  let ls = (DATA.schedule[p][dow]||[]).filter(l => (!l.from||key>=l.from) && (!l.to||key<=l.to));
+  const cancelled = ex.filter(e=>e.kind==="cancel").map(e=>e.p);
+  ls = ls.filter(l=>!cancelled.includes(l.p));
+  ex.filter(e=>e.kind==="add").forEach(e=>ls.push(e.lesson));
+  ls = ls.map(l => ({...l, st: toMin(l.start||DATA.pairs[l.p][0]), en: toMin(l.end||DATA.pairs[l.p][1])}))
+         .sort((a,b)=>a.st-b.st);
+  return { lessons:ls, ex };
+}
+
+// склеиваем подряд идущие одинаковые пары
+function blocks(ls){
+  const out=[];
+  ls.forEach(l=>{
+    const last=out[out.length-1];
+    if (last && last.s===l.s && last.t===l.t && last.r===l.r && l.p===last.pTo+1 && l.st-last.en<=10){
+      last.en=l.en; last.pTo=l.p; if (l.note && !last.notes.includes(l.note)) last.notes.push(l.note);
+    } else out.push({...l, pFrom:l.p, pTo:l.p, notes: l.note?[l.note]:[]});
+  });
+  return out;
+}
+
+function planDay(d){
+  const dow=d.getDay(), info=lessonsFor(d), bl=blocks(info.lessons), R=DATA.road, items=[];
+  const plan={ d, dow, parity:parity(d), info, bl, items, gym:null, dep:null, home:null, start:null, end:null };
+  if (bl.length){
+    const f=bl[0], fb=DATA.buildings[bOf(f.r)];
+    let dep=f.st - R.drive - fb.park - R.buffer, drive=R.drive;
+    if (isPeak(dep,dow) || isPeak(f.st-fb.park,dow)){ drive=R.drivePeak; dep=f.st - drive - fb.park - R.buffer; }
+    dep=floor5(dep); plan.dep=dep; plan.start=f.st;
+    items.push({ t:dep, end:f.st, kind:"road", title:"Выезд из общаги",
+      meta:`Корпус ${bOf(f.r)} · ${DATA.groupsName[fb.group]} · ${drive} мин дорога${drive===R.drivePeak?" (час пик)":""} + ${fb.park} мин парковка + ${R.buffer} мин запас` });
+    bl.forEach((b,i)=>{
+      const cls = DATA.types[b.t]||"pz";
+      const pairs = b.pFrom===b.pTo ? `${b.pFrom} пара` : `${b.pFrom}–${b.pTo} пары`;
+      items.push({ t:b.st, end:b.en, kind:"lesson", cls, title:b.s, badge:b.t,
+        meta:`${pairs} · ${fmt(b.st)}–${fmt(b.en)} · ${b.r} · ${b.tch}`, notes:b.notes });
+      const n=bl[i+1];
+      if (n){
+        const gap=n.st-b.en;
+        const g1=DATA.buildings[bOf(b.r)].group, g2=DATA.buildings[bOf(n.r)].group;
+        if (g1!==g2 && gap<=40){
+          items.push({ t:b.en, end:n.st, kind:"road", title:`Переезд: ${DATA.groupsName[g1]} → ${DATA.groupsName[g2]}`,
+            meta:`~${R.betweenCampuses} мин + парковка. Между парами ${gap} мин.` });
+        } else if (gap>10){
+          const pb=DATA.buildings[bOf(b.r)], nb=DATA.buildings[bOf(n.r)];
+          const leave=b.en+pb.park; const drv1=isPeak(leave,dow)?R.drivePeak:R.drive; const arrive=leave+drv1;
+          let back=n.st-nb.park-R.drive-R.buffer; if (isPeak(back,dow)) back=n.st-nb.park-R.drivePeak-R.buffer; back=floor5(back);
+          let meta = `Свободно ${dur(gap)}.`;
+          if (back-arrive>=45) meta += ` Можно заехать в общагу: дома ~${fmt(arrive)}–${fmt(back)} (${dur(back-arrive)}), обратно выезд в ${fmt(back)}.`;
+          else meta += " Удобнее остаться в вузе.";
+          items.push({ t:b.en, end:n.st, kind:"gap", title:"Окно", meta });
+        }
+      }
+    });
+    const l=bl[bl.length-1], lb=DATA.buildings[bOf(l.r)];
+    const leave=l.en+lb.park, drv=isPeak(leave,dow)?R.drivePeak:R.drive, home=leave+drv;
+    plan.end=l.en; plan.home=home;
+    items.push({ t:l.en, end:home, kind:"road", title:`Домой — в общаге ~${fmt(home)}`,
+      meta:`${lb.park} мин до машины + ${drv} мин дорога${drv===R.drivePeak?" (вечерний час пик)":""}` });
+  }
+  // зал
+  if (isGymDay(d)){
+    const G=DATA.gym, key=plan.parity+"-"+dow, ov=bl.length?G.overrides[key]:null, len=G.workout+G.after;
+    let st, note;
+    if (!bl.length){ st=null; note="Свободный день — в любое удобное время. Нужно ~"+dur(len+2*G.driveFromHome+G.park)+" вместе с дорогой."; }
+    else if (ov && ov.start){ st=toMin(ov.start); note=ov.note; }
+    else { st=ceil5(plan.home+G.meal+G.driveFromHome+G.park); note=(ov&&ov.note?ov.note+" ":"")+"Сначала общага и обед ("+G.meal+" мин)."; }
+    plan.gym={ st, en: st!=null? st+len : null, note };
+    items.push({ t: st!=null?st:-1, end: st!=null?st+len:-1, kind:"gym", title:"Зал · "+G.name,
+      meta: (st!=null? `${fmt(st)}–${fmt(st+len)} · тренировка ${G.workout} мин + душ/хамам ${G.after} мин. `:"") + note });
+  }
+  items.sort((a,b)=>a.t-b.t);
+  return plan;
+}
+
+/* =====================================================================
+   ОТРИСОВКА
+   ===================================================================== */
+const state = { sel: new Date(), weekParity: null };
+state.sel.setHours(0,0,0,0);
+const today = () => { const t=new Date(); t.setHours(0,0,0,0); return t; };
+const nowMin = () => { const n=new Date(); return n.getHours()*60+n.getMinutes(); };
+const store = {
+  get(k){ try{ return localStorage.getItem(k)||""; }catch(e){ return ""; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+};
+const view = document.getElementById("view");
+
+function dateTitle(d){ return `${WD_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`; }
+
+function renderDay(){
+  const d=state.sel, isToday = dayNum(d)===dayNum(today()), plan=planDay(d);
+  const mon=mondayOf(d);
+  let h = `<div class="strip"><button class="arr" data-shift="-7" aria-label="Предыдущая неделя">‹</button>`;
+  for (let i=0;i<7;i++){
+    const x=addDays(mon,i), pl=lessonsFor(x), has=pl.lessons.length>0, gym=isGymDay(x);
+    const cls=["d", dayNum(x)===dayNum(d)?"sel":"", dayNum(x)===dayNum(today())?"today":"", (!has)?"off":""].join(" ");
+    h += `<button class="${cls}" data-go="${iso(x)}"><div class="w">${WD[x.getDay()]}</div><div class="n">${x.getDate()}</div>
+      <div class="dots">${has?'<i style="background:var(--accent)"></i>':""}${gym?'<i style="background:var(--gym)"></i>':""}${pl.ex.length?'<i style="background:var(--warn)"></i>':""}</div></button>`;
+  }
+  h += `<button class="arr" data-shift="7" aria-label="Следующая неделя">›</button></div>`;
+
+  h += `<div class="dayhead"><h2>${dateTitle(d)}</h2>${isToday?'<span class="muted small">сегодня</span>':'<button class="todaybtn" data-go="'+iso(today())+'">Сегодня</button>'}</div>`;
+
+  if (isToday) h += `<div id="statusBox"></div>`;
+
+  // сводка
+  const s=[];
+  if (plan.dep!=null) s.push(`<div class="s"><span class="muted">Выезд</span><b>${fmt(plan.dep)}</b></div>`);
+  if (plan.start!=null) s.push(`<div class="s"><span class="muted">Пары</span><b>${fmt(plan.start)}–${fmt(plan.end)}</b></div>`);
+  if (plan.home!=null) s.push(`<div class="s"><span class="muted">Дома</span><b>~${fmt(plan.home)}</b></div>`);
+  if (plan.gym) s.push(`<div class="s" style="border-color:var(--gym)"><span class="muted">Зал</span><b style="color:var(--gym)">${plan.gym.st!=null?fmt(plan.gym.st):"да"}</b></div>`);
+  if (s.length) h += `<div class="summary">${s.join("")}</div>`;
+
+  // особые даты
+  plan.info.ex.forEach(e=>{
+    if (e.kind==="holiday"||e.kind==="note")
+      h += `<div class="it"><div class="tm">!</div><div class="blk hol"><div class="t">${esc(e.title)}</div><div class="m">${esc(e.text||"")}</div></div></div>`;
+  });
+
+  if (plan.info.outside){
+    h += `<div class="card empty"><div class="big">🗓</div><div>Вне семестра (расписание действует 1 сентября – 31 декабря).</div></div>`;
+  } else if (!plan.bl.length && !plan.info.holiday){
+    h += `<div class="card empty"><div class="big">☕</div><div><b>Пар нет</b></div><div class="muted small">${d.getDay()===0?"Воскресенье":"Свободный день"}</div></div>`;
+  }
+
+  h += `<div class="tl">`;
+  plan.items.forEach((it,i)=>{
+    const cls = it.kind==="lesson" ? it.cls : it.kind;
+    const tm = it.t>=0 ? `${fmt(it.t)}${it.end>it.t && it.kind!=="road"?`<small>${fmt(it.end)}</small>`:""}` : "—";
+    h += `<div class="it" data-t="${it.t}" data-e="${it.end}"><div class="tm">${tm}</div><div class="blk ${cls}">
+      <div class="t">${esc(it.title)}${it.badge?`<span class="badge ${it.cls}">${it.badge}</span>`:""}</div>
+      <div class="m">${esc(it.meta||"")}</div>
+      ${(it.notes||[]).map(n=>`<div class="note">${esc(n)}</div>`).join(" ")}
+    </div></div>`;
+  });
+  h += `</div>`;
+
+  h += `<div class="card"><div class="row between"><b>Заметки на этот день</b><span class="muted small">хранятся на этом устройстве</span></div>
+    <textarea id="note" placeholder="Домашка, что взять с собой, перенос пары…">${esc(store.get("note:"+iso(d)))}</textarea></div>`;
+
+  view.innerHTML = h;
+  document.getElementById("note").addEventListener("input", e=>store.set("note:"+iso(d), e.target.value));
+  if (isToday) updateLive();
+}
+
+function updateLive(){
+  const box=document.getElementById("statusBox"); if(!box) return;
+  const n=nowMin(), plan=planDay(today());
+  let msg="";
+  document.querySelectorAll(".it[data-t]").forEach(el=>{
+    const t=+el.dataset.t, e=+el.dataset.e;
+    el.classList.toggle("past", t>=0 && e>0 && e<=n);
+    el.classList.toggle("now", t>=0 && t<=n && n<e);
+  });
+  const cur=plan.items.find(it=>it.t>=0 && it.t<=n && n<it.end);
+  const next=plan.items.find(it=>it.t>n);
+  if (cur && cur.kind==="lesson") msg=`Сейчас: ${cur.title} — до ${fmt(cur.end)}`;
+  else if (next && next.title==="Выезд из общаги") msg = `Выезд через ${dur(next.t-n)} — в ${fmt(next.t)}`;
+  else if (cur && cur.kind==="gap") msg=`Окно до ${fmt(cur.end)}`;
+  else if (cur && cur.kind==="gym") msg=`Зал до ${fmt(cur.end)}`;
+  else if (next) msg=`Дальше: ${next.title} в ${fmt(next.t)}`;
+  else if (plan.bl.length) msg="На сегодня пары закончились";
+  box.innerHTML = msg ? `<div class="status">${esc(msg)}</div>` : "";
+}
+
+function renderWeek(){
+  const p = state.weekParity || parity(today());
+  let h = `<div class="seg"><button data-par="odd" class="${p==="odd"?"on":""}">Нечётная</button><button data-par="even" class="${p==="even"?"on":""}">Чётная</button></div>`;
+  // ближайшая неделя этой чётности
+  let mon=mondayOf(today()); if (parity(mon)!==p) mon=addDays(mon,7);
+  h += `<p class="muted small" style="margin:0 2px 10px">Ближайшая: ${mon.getDate()} ${MONTHS[mon.getMonth()]} – ${addDays(mon,6).getDate()} ${MONTHS[addDays(mon,6).getMonth()]}. Нажмите на день, чтобы открыть его план.</p>`;
+  for (let i=0;i<7;i++){
+    const d=addDays(mon,i), dow=d.getDay();
+    const raw=(DATA.schedule[p][dow]||[]);
+    const plan=planDay(d);
+    const tags=[];
+    if (plan.dep!=null) tags.push(`<span class="tag road">выезд ${fmt(plan.dep)}</span>`);
+    if (plan.gym) tags.push(`<span class="tag gym">зал${plan.gym.st!=null?" "+fmt(plan.gym.st):""}</span>`);
+    h += `<div class="card wday" data-go="${iso(d)}" style="cursor:pointer"><h3><span>${WD_FULL[dow]} <span class="muted small" style="font-weight:500">${d.getDate()}.${String(d.getMonth()+1).padStart(2,"0")}</span></span><span class="row">${tags.join("")}</span></h3>`;
+    if (!raw.length) h += `<div class="muted small">Пар нет</div>`;
+    raw.forEach(l=>{
+      const cls=DATA.types[l.t]||"pz";
+      const lim = l.from&&l.from>"2026-09-01" ? ` · с ${parseISO(l.from).getDate()} ${MONTHS[parseISO(l.from).getMonth()]}` : (l.to&&l.to<"2026-12-31"? ` · до ${parseISO(l.to).getDate()} ${MONTHS[parseISO(l.to).getMonth()]}`:"");
+      h += `<div class="wl"><span class="p">${l.p}</span><span class="tt">${l.start||DATA.pairs[l.p][0]}–${DATA.pairs[l.p][1]}</span><span>${esc(l.s)}<span class="badge ${cls}">${l.t}</span><br><span class="muted small">${esc(l.r)} · ${esc(l.tch)}${lim}</span></span></div>`;
+    });
+    if (plan.info.ex.length) plan.info.ex.forEach(e=>{ h += `<div class="small" style="color:var(--warn);margin-top:6px">⚑ ${esc(e.title)}</div>`; });
+    h += `</div>`;
+  }
+  view.innerHTML = h;
+}
+
+function renderSubjects(){
+  const map={};
+  ["odd","even"].forEach(p=>Object.entries(DATA.schedule[p]).forEach(([dow,ls])=>ls.forEach(l=>{
+    (map[l.s]=map[l.s]||{rows:[],tch:new Set(),types:new Set()});
+    map[l.s].rows.push({p, dow:+dow, ...l}); map[l.s].tch.add(l.tch); map[l.s].types.add(l.t);
+  })));
+  const names=Object.keys(map).sort((a,b)=>map[b].rows.length-map[a].rows.length);
+  let h=`<div class="legend">${Object.entries(DATA.types).map(([k,v])=>`<span class="badge ${v}" style="margin:0">${k}</span>`).join("")}<span class="muted small">ЛЕКЦ — лекция, ПЗ — практика, ЛР — лабораторная, КСР — контроль самостоятельной работы</span></div>`;
+  h+=`<p class="muted small" style="margin:6px 2px 10px">Пар за две недели (одна чётная + одна нечётная).</p>`;
+  names.forEach(n=>{
+    const m=map[n];
+    h+=`<div class="card subj"><div class="row between"><h3>${esc(n)}</h3><span class="chip" style="background:var(--accent-soft);color:var(--accent)">${m.rows.length} пар</span></div>
+      <div class="muted small">${[...m.tch].map(esc).join(", ")}</div><ul>`;
+    m.rows.sort((a,b)=>(a.p===b.p?0:(a.p==="odd"?-1:1))||a.dow-b.dow||a.p-b.p);
+    m.rows.forEach(r=>{
+      h+=`<li>${r.p==="odd"?"Нечёт.":"Чёт."} ${WD[r.dow]}, ${r.p} пара — <span class="badge ${DATA.types[r.t]}" style="margin:0">${r.t}</span> ${esc(r.r)}</li>`;
+    });
+    h+=`</ul></div>`;
+  });
+  view.innerHTML=h;
+}
+
+function renderInfo(){
+  const R=DATA.road, G=DATA.gym;
+  let h=`<h2 class="sec">Дорога из общаги (ул. Рихарда Зорге, 13В)</h2><div class="card"><table class="k">
+    <tr><th></th><th>Обычно</th><th>Час пик</th></tr>
+    <tr><td>До корпуса</td><td>${R.drive} мин</td><td>${R.drivePeak} мин</td></tr>
+    <tr><td>Парковка → аудитория</td><td colspan="2">Д, Л, М, Г — 8 мин · А, В — 10 мин</td></tr>
+    <tr><td>Запас</td><td colspan="2">${R.buffer} мин</td></tr>
+    <tr><td>Час пик</td><td colspan="2">будни 7:30–9:00 и 16:30–19:00; в выходные пробок нет</td></tr>
+  </table></div>
+  <h2 class="sec">Корпуса</h2><div class="card"><table class="k">
+    ${Object.entries(DATA.buildings).map(([k,b])=>`<tr><td><b>${k}</b></td><td>${esc(b.addr)}</td></tr>`).join("")}
+  </table></div>
+  <h2 class="sec">Зал</h2><div class="card">
+    <div><b>${esc(G.name)}</b></div>
+    <div class="small" style="margin-top:4px">Строго через день (точка отсчёта — 30 октября). Тренировка ${G.workout} мин + душ, хамам и переодевание ${G.after} мин. После пар сначала заезд в общагу и обед (~${G.meal} мин), дорога до зала ~${G.driveFromHome} мин.</div>
+    <div class="small" style="margin-top:6px">В нечётную неделю зал выпадает на пн, ср, пт, вс; в чётную — на вт, чт, сб. Цикл повторяется каждые две недели.</div>
+  </div>
+  <h2 class="sec">Особые даты</h2><div class="card"><table class="k">
+    ${DATA.exceptions.map(e=>`<tr><td style="white-space:nowrap">${parseISO(e.date).getDate()} ${MONTHS[parseISO(e.date).getMonth()]}</td><td><b>${esc(e.title)}</b><br><span class="muted small">${esc(e.text||"")}</span></td></tr>`).join("")}
+  </table></div>
+  <h2 class="sec">Как вносить правки</h2><div class="card small">
+    Перенесли пару, сменилась аудитория, добавилась отработка, изменилось время в зале — просто напишите Claude в том же чате. План обновится по этой же ссылке. Заметки к дням хранятся только в браузере этого устройства.
+  </div>
+  <p class="muted small" style="margin:12px 2px">Подгруппы: 1-я по основам программирования, 2-я по основам ИБ. Английский — одна пара в неделю (спаренная в чт нечётной недели не посещается).</p>`;
+  view.innerHTML=h;
+}
+
+function route(){
+  const v=(location.hash||"#day").slice(1);
+  const valid=["day","week","subjects","info"].includes(v)?v:"day";
+  document.querySelectorAll("nav.tabs a").forEach(a=>a.classList.toggle("on", a.dataset.v===valid));
+  ({day:renderDay, week:renderWeek, subjects:renderSubjects, info:renderInfo})[valid]();
+  const p=parity(today()); const c=document.getElementById("parityChip");
+  c.className="chip "+p; c.textContent=parityName(p);
+  window.scrollTo(0,0);
+}
+
+view.addEventListener("click", e=>{
+  const go=e.target.closest("[data-go]"), sh=e.target.closest("[data-shift]"), par=e.target.closest("[data-par]");
+  if (sh){ state.sel=addDays(state.sel, +sh.dataset.shift); renderDay(); return; }
+  if (par){ state.weekParity=par.dataset.par; renderWeek(); return; }
+  if (go){ state.sel=parseISO(go.dataset.go); if (location.hash!=="#day"&&location.hash!==""){ location.hash="day"; } else renderDay(); }
+});
+// свайп по дням
+let tx=null;
+view.addEventListener("touchstart", e=>{ if((location.hash||"#day")==="#day" && !e.target.closest("textarea")) tx=e.touches[0].clientX; }, {passive:true});
+view.addEventListener("touchend", e=>{ if(tx==null) return; const dx=e.changedTouches[0].clientX-tx; tx=null;
+  if (Math.abs(dx)>70){ state.sel=addDays(state.sel, dx<0?1:-1); renderDay(); } }, {passive:true});
+window.addEventListener("hashchange", route);
+setInterval(()=>{ if((location.hash||"#day")==="#day") updateLive(); }, 30000);
+route();
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>
