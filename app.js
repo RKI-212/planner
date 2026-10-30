@@ -615,16 +615,18 @@ function splash(){
   const sp=document.getElementById("splash"); if(!sp) return Promise.resolve();
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduce) sp.classList.add("still");
-  sp.classList.add("go");
-  return new Promise(res=>{
+  const imgs=[...sp.querySelectorAll("img")];
+  const ready=Promise.race([Promise.all(imgs.map(i=>i.decode?i.decode().catch(()=>{}):Promise.resolve())), new Promise(r=>setTimeout(r,800))]);
+  return ready.then(()=>new Promise(res=>{
+    requestAnimationFrame(()=>sp.classList.add("go"));
     let closed=false;
     const done=()=>{ if(closed) return; closed=true; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 900); };
     sp.addEventListener("click", done);
     setTimeout(done, reduce?400:3000);
-  });
+  }));
 }
 
 route(false);
 splash().then(()=>animateIn());
-setTimeout(()=>refreshLive(true), 600);
+setTimeout(()=>refreshLive(true), 3600);
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
