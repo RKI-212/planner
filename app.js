@@ -208,6 +208,7 @@ function renderDay(){
     <textarea id="note" placeholder="Что взять с собой, перенос пары…">${esc(store.get("note:"+iso(d)))}</textarea></div>`;
   view.innerHTML = h;
   document.getElementById("note").addEventListener("input", e=>store.set("note:"+iso(d), e.target.value));
+  bindSleep();
   if (isToday) updateLive();
 }
 
@@ -232,14 +233,41 @@ function updateLive(){
   box.innerHTML = msg ? `<div class="status">${esc(msg)}</div>` : "";
 }
 
-/* ---------- сон ---------- */
+/* ---------- сон: калькулятор подъёма ---------- */
+function wakeCalc(bedMin, ready, sp){
+  // bedMin — минуты от полуночи вечера (может быть >1440, если после полуночи)
+  const S=DATA.sleep, prep = ready ? S.prepReady : S.prepNotReady;
+  const wake = sp.first - prep + 1440;                 // в минутах от полуночи предыдущего дня
+  const asleep = bedMin + S.fallAsleep, sleepLen = wake - asleep;
+  let cyc=null; const n=Math.floor(sleepLen/S.cycle);
+  if (n>=1){ const cw = asleep + n*S.cycle; if (wake-cw>=10 && wake-cw<=40) cyc={ at:cw-1440, n }; }
+  return { prep, wake: wake-1440, sleepLen, cyc };
+}
 function sleepCardHtml(d){
-  // для дня d показываем, во сколько лечь сегодня вечером, чтобы успеть завтра
-  const tm=addDays(d,1), sp=sleepPlan(tm); if (!sp) return "";
-  const bed = sp.bed<0 ? sp.bed+1440 : sp.bed; const late = sp.bed<0 ? "" : " (после полуночи!)";
-  const label = dayNum(tm)-dayNum(today())===1 ? "Завтра" : WD_FULL[tm.getDay()];
-  return `<div class="card sleep"><div class="moon">☾</div><div><b>Лечь до ${fmt(sp.bed<0?bed:sp.bed)}${sp.bed>=0?late:""}</b>
-    <div class="small muted">${label}: ${sp.what} → подъём в ${fmt(sp.wake)} · ${DATA.sleep.hours} ч сна, ${DATA.sleep.prep} мин на сборы</div></div></div>`;
+  const isToday=dayNum(d)===dayNum(today()), night = isToday && nowMin()<5*60;
+  const tm = night ? d : addDays(d,1), sp=sleepPlan(tm); if (!sp) return "";
+  const label = night ? "Сегодня" : dayNum(tm)-dayNum(today())===1 ? "Завтра" : WD_FULL[tm.getDay()];
+  const st=store.json("sleepUI",{ready:true});
+  let bed = st.bed!=null && st.bedFor===iso(tm) ? st.bed : 23*60+30;
+  if (isToday && !(st.bed!=null && st.bedFor===iso(tm))){ const n=nowMin(); if (n>=20*60) bed=ceil5(n+15); else if (night) bed=ceil5(n+15)+1440; }
+  const r=wakeCalc(bed, st.ready, sp);
+  const bedStr=fmt(bed%1440);
+  window._slFor=iso(tm);
+  return `<div class="card sleep"><div class="moon">☾</div><div style="flex:1">
+    <div class="small muted">${label}: ${sp.what}</div>
+    <div class="row sl-in"><label>Ложусь в <input type="time" id="slBed" value="${String(Math.floor((bed%1440)/60)).padStart(2,"0")}:${String(bed%60).padStart(2,"0")}"></label>
+      <div class="seg mini sl-seg"><button data-ready="1" class="${st.ready?"on":""}">Всё готово</button><button data-ready="0" class="${st.ready?"":"on"}">Не готово</button></div></div>
+    ${r.sleepLen<=0 ? `<b style="color:var(--warn)">Не успеете выспаться — вставать в ${fmt(r.wake)}</b>` :
+      `<div class="sl-out"><b>Вставать в ${fmt(r.wake)}</b> <span class="muted small">· сна ~${dur(r.sleepLen)} · сборы ${r.prep} мин</span></div>
+       ${r.cyc?`<div class="small muted">По циклам сна мягче проснуться в ${fmt(r.cyc.at)} (${r.cyc.n} ${r.cyc.n%10===1&&r.cyc.n!==11?"цикл":r.cyc.n>=2&&r.cyc.n<=4?"цикла":"циклов"}) — если хотите в запас.</div>`:""}
+       ${r.sleepLen<6*60?`<div class="small" style="color:var(--warn)">Меньше 6 часов сна.</div>`:""}`}
+  </div></div>`;
+}
+function bindSleep(){
+  const inp=document.getElementById("slBed"); if(!inp) return;
+  const save=(patch)=>{ const st=store.json("sleepUI",{ready:true}); Object.assign(st,patch); store.put("sleepUI",st); const y=scrollY; renderDay(); scrollTo(0,y); };
+  inp.addEventListener("change",()=>{ const [h,m]=inp.value.split(":").map(Number); let b=h*60+m; if (b<12*60) b+=1440; save({bed:b, bedFor:window._slFor}); });
+  document.querySelectorAll(".sl-seg button").forEach(btn=>btn.onclick=()=>save({ready:btn.dataset.ready==="1"}));
 }
 
 /* ---------- итоги недели ---------- */
@@ -543,7 +571,7 @@ function splash(){
   else if (pl.end!=null && n<pl.end) line=`Пары до ${fmt(pl.end)}`;
   else if (pl.gym && pl.gym.st!=null && n<pl.gym.st && !(g&&g.done!=null)) line=`Сегодня зал в ${fmt(pl.gym.st)}`;
   else if (t0.getDay()===0 && n>=12*60) line="Итоги недели готовы";
-  else { const sp2=sleepPlan(addDays(t0,1)); if (sp2 && n>=17*60) line=`Завтра ${sp2.what} · лечь до ${fmt(sp2.bed<0?sp2.bed+1440:sp2.bed)}`;
+  else { const sp2=sleepPlan(addDays(t0,1)); if (sp2 && n>=17*60) line=`Завтра ${sp2.what}`;
     else { let x=addDays(t0,1); for(let i=0;i<10&&planDay(x).dep==null;i++) x=addDays(x,1); const px=planDay(x);
       line = px.dep!=null ? `${dayNum(x)-dayNum(t0)===1?"Завтра":WD_FULL[x.getDay()]} выезд в ${fmt(px.dep)}` : "Хорошего дня"; } }
   sp.querySelector(".sp-hello").textContent=hello;

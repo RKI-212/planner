@@ -127,10 +127,9 @@ function allSubjects(){
 
 // Во сколько вставать и ложиться, чтобы успеть на первое дело дня d (выезд или утренний зал)
 function sleepPlan(d){
-  var p=planDay(d), S=DATA.sleep, G=DATA.gym, first=null, what="";
+  var p=planDay(d), G=DATA.gym, first=null, what="";
   if (p.dep!=null){ first=p.dep; what="выезд в "+fmt(p.dep); }
   if (p.gym && p.gym.st!=null){ var g=p.gym.st-G.driveFromHome-G.park; if (first==null || g<first){ first=g; what="зал в "+fmt(p.gym.st); } }
   if (first==null) return null;
-  var wake=first-S.prep, bed=wake-S.hours*60;   // bed может быть отрицательным = накануне
-  return { first:first, what:what, wake:wake, bed:bed, bedPrev: bed<0 ? bed+1440 : null };
+  return { first:first, what:what };
 }
