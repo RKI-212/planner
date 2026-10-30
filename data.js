@@ -88,7 +88,7 @@ var DATA = {
     }
   },
   // Сон: сколько спать и сколько собираться утром
-  sleep: { hours:8, prep:40, remindBefore:15 },
+  sleep: { hours:8, prep:90, remindBefore:15 },
   // Сессия: { subj, kind:"Экзамен"|"Зачёт"|"Диф. зачёт", date:"YYYY-MM-DD", time:"09:00", room:"" }
   session: [],
   // Задачи, которые добавляет Claude по вашим сообщениям.
