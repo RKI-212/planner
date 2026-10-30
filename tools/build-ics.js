@@ -5,7 +5,7 @@ const root = path.join(__dirname, "..");
 const ctx = { console, Date, Math, JSON, String, Number, Object, Array, Set };
 vm.createContext(ctx);
 for (const f of ["data.js", "core.js"]) vm.runInContext(fs.readFileSync(path.join(root, f), "utf8"), ctx, { filename: f });
-const { DATA, planDay, iso, parseISO, addDays, fmt, bOf, dayNum } = ctx;
+const { DATA, planDay, sleepPlan, iso, parseISO, addDays, fmt, bOf, dayNum, WD_FULL } = ctx;
 
 const pad = n => String(n).padStart(2, "0");
 const ymd = d => d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate());
@@ -59,6 +59,15 @@ for (let d = new Date(start); dayNum(d) <= dayNum(end); d = addDays(d, 1)) {
       desc: `Первая пара: ${f.s}, ${f.r} в ${fmt(f.st)}.\nВ приложении — точное время по пробкам Яндекса.`,
       alarms: [["-PT10M", `Через 10 минут выезд в корпус ${to}`], ["PT0M", `Пора выезжать в корпус ${to}`]] });
   }
+  const sp = sleepPlan(addDays(d, 1));
+  if (sp) {
+    const onPrev = sp.bed < 0, bd = onPrev ? d : addDays(d, 1), bt = onPrev ? sp.bed + 1440 : sp.bed;
+    if (bt + 15 <= 1440) event({ uid: `${key}-sleep`, d: bd, st: bt, en: bt + 15,
+      summary: `😴 Спать — завтра ${sp.what}`, desc: `Подъём в ${fmt(sp.wake)}. ${DATA.sleep.hours} ч сна, ${DATA.sleep.prep} мин на сборы.`,
+      alarms: [[`-PT${DATA.sleep.remindBefore}M`, `Через ${DATA.sleep.remindBefore} минут пора спать: завтра ${sp.what}`]] });
+  }
+  if (d.getDay() === 0) event({ uid: `${key}-week`, d, st: 19 * 60, en: 19 * 60 + 10, summary: "📋 Итоги недели — загляни в приложение",
+    desc: "Сколько пар и тренировок было, что сдано и что ждёт на следующей неделе.", alarms: [["PT0M", "Итоги недели готовы"]] });
   if (p.gym) {
     if (p.gym.st != null) event({ uid: `${key}-gym`, d, st: p.gym.st, en: p.gym.en, summary: "🏋️ Зал", location: DATA.gym.name,
       desc: p.gym.note || "", alarms: [["-PT30M", "Через 30 минут зал — собирайтесь"]] });

@@ -39,6 +39,9 @@ function allTasks(){
 }
 function setTaskStatus(id, status){
   const mine=store.json("tasks", []); const m=mine.find(t=>t.id===id);
+  const doneMap=store.json("taskDone", {}), t=allTasks().find(x=>x.id===id);
+  if (t && status>=t.max) doneMap[id]=iso(today()); else delete doneMap[id];
+  store.put("taskDone", doneMap);
   if (m){ m.status=status; store.put("tasks", mine); return; }
   const over=store.json("taskStatus", {}); over[id]=status; store.put("taskStatus", over);
 }
@@ -160,6 +163,7 @@ function renderDay(){
   if (plan.home!=null) s.push(`<div class="s"><span class="muted">Дома</span><b>~${fmt(plan.home)}</b></div>`);
   if (plan.gym) s.push(`<div class="s" style="border-color:var(--gym)"><span class="muted">Зал</span><b style="color:var(--gym)">${plan.gym.st!=null?fmt(plan.gym.st):"да"}</b></div>`);
   if (s.length) h += `<div class="summary">${s.join("")}</div>`;
+  if (d.getDay()===0 || (d.getDay()===6 && isToday && nowMin()>=18*60)) h += summaryHtml(mondayOf(d), "Итоги недели");
 
   // задачи на этот день
   const tasks=allTasks().filter(t=>!t.done);
@@ -199,6 +203,7 @@ function renderDay(){
     </div></div>`;
   });
   h += `</div>`;
+  h += sleepCardHtml(d);
   h += `<div class="card"><div class="row between"><b>Заметки на этот день</b><span class="muted small">на этом устройстве</span></div>
     <textarea id="note" placeholder="Что взять с собой, перенос пары…">${esc(store.get("note:"+iso(d)))}</textarea></div>`;
   view.innerHTML = h;
@@ -227,6 +232,50 @@ function updateLive(){
   box.innerHTML = msg ? `<div class="status">${esc(msg)}</div>` : "";
 }
 
+/* ---------- сон ---------- */
+function sleepCardHtml(d){
+  // для дня d показываем, во сколько лечь сегодня вечером, чтобы успеть завтра
+  const tm=addDays(d,1), sp=sleepPlan(tm); if (!sp) return "";
+  const bed = sp.bed<0 ? sp.bed+1440 : sp.bed; const late = sp.bed<0 ? "" : " (после полуночи!)";
+  const label = dayNum(tm)-dayNum(today())===1 ? "Завтра" : WD_FULL[tm.getDay()];
+  return `<div class="card sleep"><div class="moon">☾</div><div><b>Лечь до ${fmt(sp.bed<0?bed:sp.bed)}${sp.bed>=0?late:""}</b>
+    <div class="small muted">${label}: ${sp.what} → подъём в ${fmt(sp.wake)} · ${DATA.sleep.hours} ч сна, ${DATA.sleep.prep} мин на сборы</div></div></div>`;
+}
+
+/* ---------- итоги недели ---------- */
+function weekSummary(mon){
+  const days=[...Array(7)].map((_,i)=>addDays(mon,i)), t0=today(), log=gymLog();
+  let pairs=0, pairsPast=0; const bySubj={};
+  days.forEach(d=>{ const ls=lessonsFor(d).lessons; pairs+=ls.length; if (dayNum(d)<=dayNum(t0)) pairsPast+=ls.length; ls.forEach(l=>bySubj[l.s]=(bySubj[l.s]||0)+1); });
+  const gymPlan=days.filter(isGymDay), gymDone=gymPlan.filter(d=>log[iso(d)]&&log[iso(d)].done).length;
+  const exCount=gymPlan.reduce((s,d)=>s+((log[iso(d)]&&log[iso(d)].ex)||[]).length,0);
+  const doneMap=store.json("taskDone",{}), tasks=allTasks();
+  const doneThis=tasks.filter(t=>doneMap[t.id] && doneMap[t.id]>=iso(mon) && doneMap[t.id]<=iso(days[6]));
+  const open=tasks.filter(t=>!t.done), nm=addDays(mon,7);
+  const overdue=open.filter(t=>t.dueDate && dayNum(t.dueDate)<dayNum(t0));
+  const nextWeek=open.filter(t=>t.dueDate && dayNum(t.dueDate)>=dayNum(nm) && dayNum(t.dueDate)<=dayNum(addDays(nm,6)));
+  const nDays=[...Array(7)].map((_,i)=>addDays(nm,i));
+  const nPairs=nDays.reduce((s,d)=>s+lessonsFor(d).lessons.length,0);
+  const firstDay=nDays.find(d=>planDay(d).dep!=null), firstPlan=firstDay&&planDay(firstDay);
+  const heavy=nDays.map(d=>({d,p:planDay(d)})).filter(x=>x.p.start!=null).sort((a,b)=>(b.p.end-b.p.start)-(a.p.end-a.p.start))[0];
+  return { mon, pairs, pairsPast, gymPlan:gymPlan.length, gymDone, exCount, doneThis, overdue, nextWeek, nPairs, nm, firstDay, firstPlan, heavy, parityNext:parity(nm) };
+}
+function summaryHtml(mon, title){
+  const s=weekSummary(mon), pct=s.gymPlan?Math.round(s.gymDone/s.gymPlan*100):0;
+  return `<div class="card summ"><div class="row between"><b>${title}</b><span class="small muted">${shortDate(mon)} – ${shortDate(addDays(mon,6))}</span></div>
+    <div class="sgrid">
+      <div><b>${s.pairs}</b><span>пар за неделю</span></div>
+      <div><b style="color:var(--gym)">${s.gymDone}/${s.gymPlan}</b><span>тренировок${s.exCount?` · ${s.exCount} упр.`:""}</span></div>
+      <div><b style="color:var(--pz)">${s.doneThis.length}</b><span>задач закрыто</span></div>
+    </div>
+    <div class="bar"><i style="width:${pct}%;background:var(--gym)"></i></div>
+    ${s.overdue.length?`<div class="small" style="color:var(--warn);margin-top:8px">⚠ Просрочено: ${s.overdue.map(t=>esc(t.title)).join(", ")}</div>`:""}
+    <div class="sub">Следующая неделя · ${s.parityNext==="odd"?"нечётная":"чётная"}</div>
+    <div class="small">${s.nPairs} пар${s.firstPlan?` · первый выезд: ${WD_FULL[s.firstDay.getDay()].toLowerCase()} в ${fmt(s.firstPlan.dep)}`:""}${s.heavy?` · самый длинный день: ${WD_FULL[s.heavy.d.getDay()].toLowerCase()} (${fmt(s.heavy.p.start)}–${fmt(s.heavy.p.end)})`:""}</div>
+    ${s.nextWeek.length?`<div class="small" style="margin-top:4px">Сдать: ${s.nextWeek.map(t=>`${esc(t.title)} (${WD[t.dueDate.getDay()]})`).join(", ")}</div>`:`<div class="small muted" style="margin-top:4px">Сроков на следующей неделе нет.</div>`}
+  </div>`;
+}
+
 /* =====================================================================
    НЕДЕЛЯ
    ===================================================================== */
@@ -234,6 +283,7 @@ function renderWeek(){
   const p = state.weekParity || parity(today());
   let h = `<div class="seg"><button data-par="odd" class="${p==="odd"?"on":""}">Нечётная</button><button data-par="even" class="${p==="even"?"on":""}">Чётная</button></div>`;
   let mon=mondayOf(today()); if (parity(mon)!==p) mon=addDays(mon,7);
+  if (!state.weekParity || state.weekParity===parity(today())) h += summaryHtml(mondayOf(today()), "Эта неделя");
   h += `<p class="muted small" style="margin:0 2px 10px">Ближайшая: ${shortDate(mon)} – ${shortDate(addDays(mon,6))}. Нажмите на день, чтобы открыть его план.</p>`;
   for (let i=0;i<7;i++){
     const d=addDays(mon,i), dow=d.getDay(), raw=(DATA.schedule[p][dow]||[]), plan=planDay(d), tags=[];
@@ -486,21 +536,26 @@ function splash(){
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const h=new Date().getHours();
   const hello = h<5?"Доброй ночи":h<12?"Доброе утро":h<17?"Добрый день":h<23?"Добрый вечер":"Доброй ночи";
-  const pl=planDay(today()), g=gymLog()[iso(today())];
+  const t0=today(), pl=planDay(t0), g=gymLog()[iso(t0)], n=nowMin();
   let line;
   if (pl.info.holiday) line="Сегодня праздник — пар нет";
-  else if (pl.dep!=null && nowMin()<pl.dep) line=`Сегодня выезд в ${fmt(pl.dep)}`;
-  else if (pl.end!=null && nowMin()<pl.end) line=`Пары до ${fmt(pl.end)}`;
-  else if (pl.gym && !(g&&g.done!=null)) line = pl.gym.st!=null ? `Сегодня зал в ${fmt(pl.gym.st)}` : "Сегодня день зала";
-  else { let n=addDays(today(),1); for(let i=0;i<10&&!lessonsFor(n).lessons.length;i++) n=addDays(n,1); const pn=planDay(n);
-    line = pn.dep!=null ? `${dayNum(n)-dayNum(today())===1?"Завтра":WD_FULL[n.getDay()]} выезд в ${fmt(pn.dep)}` : "Хорошего дня"; }
+  else if (pl.dep!=null && n<pl.dep) line=`Сегодня выезд в ${fmt(pl.dep)}`;
+  else if (pl.end!=null && n<pl.end) line=`Пары до ${fmt(pl.end)}`;
+  else if (pl.gym && pl.gym.st!=null && n<pl.gym.st && !(g&&g.done!=null)) line=`Сегодня зал в ${fmt(pl.gym.st)}`;
+  else if (t0.getDay()===0 && n>=12*60) line="Итоги недели готовы";
+  else { const sp2=sleepPlan(addDays(t0,1)); if (sp2 && n>=17*60) line=`Завтра ${sp2.what} · лечь до ${fmt(sp2.bed<0?sp2.bed+1440:sp2.bed)}`;
+    else { let x=addDays(t0,1); for(let i=0;i<10&&planDay(x).dep==null;i++) x=addDays(x,1); const px=planDay(x);
+      line = px.dep!=null ? `${dayNum(x)-dayNum(t0)===1?"Завтра":WD_FULL[x.getDay()]} выезд в ${fmt(px.dep)}` : "Хорошего дня"; } }
   sp.querySelector(".sp-hello").textContent=hello;
   sp.querySelector(".sp-line").textContent=line;
-  sp.querySelector(".sp-par").textContent=parityName(parity(today()));
+  sp.querySelector(".sp-par").textContent=parityName(parity(t0));
+  if (reduce) sp.classList.add("still");
+  sp.classList.add("go");
   return new Promise(res=>{
-    const done=()=>{ if(sp.classList.contains("out")) return; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 700); };
+    let closed=false;
+    const done=()=>{ if(closed) return; closed=true; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 700); };
     sp.addEventListener("click", done);
-    setTimeout(done, reduce?300:1700);
+    setTimeout(done, reduce?400:3300);
   });
 }
 
