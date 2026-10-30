@@ -614,28 +614,13 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 function splash(){
   const sp=document.getElementById("splash"); if(!sp) return Promise.resolve();
   const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const h=new Date().getHours();
-  const hello = h<5?"Доброй ночи":h<12?"Доброе утро":h<17?"Добрый день":h<23?"Добрый вечер":"Доброй ночи";
-  const t0=today(), pl=planDay(t0), g=gymLog()[iso(t0)], n=nowMin();
-  let line;
-  if (pl.info.holiday) line="Сегодня праздник — пар нет";
-  else if (pl.dep!=null && n<pl.dep) line=`Сегодня выезд в ${fmt(pl.dep)}`;
-  else if (pl.end!=null && n<pl.end) line=`Пары до ${fmt(pl.end)}`;
-  else if (pl.gym && pl.gym.st!=null && n<pl.gym.st && !(g&&g.done!=null)) line=`Сегодня зал в ${fmt(pl.gym.st)}`;
-  else if (t0.getDay()===0 && n>=12*60) line="Итоги недели готовы";
-  else { const sp2=sleepPlan(addDays(t0,1)); if (sp2 && n>=17*60) line=`Завтра ${sp2.what}`;
-    else { let x=addDays(t0,1); for(let i=0;i<10&&planDay(x).dep==null;i++) x=addDays(x,1); const px=planDay(x);
-      line = px.dep!=null ? `${dayNum(x)-dayNum(t0)===1?"Завтра":WD_FULL[x.getDay()]} выезд в ${fmt(px.dep)}` : "Хорошего дня"; } }
-  sp.querySelector(".sp-hello").textContent=hello;
-  sp.querySelector(".sp-line").textContent=line;
-  sp.querySelector(".sp-par").textContent=parityName(parity(t0));
   if (reduce) sp.classList.add("still");
   sp.classList.add("go");
   return new Promise(res=>{
     let closed=false;
-    const done=()=>{ if(closed) return; closed=true; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 700); };
+    const done=()=>{ if(closed) return; closed=true; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 900); };
     sp.addEventListener("click", done);
-    setTimeout(done, reduce?400:3300);
+    setTimeout(done, reduce?400:3000);
   });
 }
 
