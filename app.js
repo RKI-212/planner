@@ -122,7 +122,7 @@ function inLiveWindow(it){ const n=nowMin(); return n>=it.t-Y.windowBeforeMin &&
 function liveHtml(it, isToday){
   if (!isToday || !inLiveWindow(it)) return "";
   const r=liveFresh(it);
-  if (!r) return LIVE.err ? `<div class="live warn">Яндекс недоступен (${esc(LIVE.err)}). Считаю по обычному времени.</div>` : `<div class="live">Узнаю время у Яндекса…</div>`;
+  if (!r) return "";   // Яндекс недоступен — молча считаем по обычному времени
   const at=new Date(r.at), upd=at.getHours()+":"+String(at.getMinutes()).padStart(2,"0");
   if (it.live==="dep"){
     const ld=liveDep(it), diff=it.t-ld;
