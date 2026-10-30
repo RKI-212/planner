@@ -165,19 +165,8 @@ function renderDay(){
   if (s.length) h += `<div class="summary">${s.join("")}</div>`;
   if (d.getDay()===0 || (d.getDay()===6 && isToday && nowMin()>=18*60)) h += summaryHtml(mondayOf(d), "Итоги недели");
 
-  // задачи на этот день
-  const tasks=allTasks().filter(t=>!t.done);
-  const dueToday=tasks.filter(t=>t.dueDate && dayNum(t.dueDate)===dayNum(d));
-  const late = isToday ? tasks.filter(t=>t.dueDate && dayNum(t.dueDate)<dayNum(d)) : [];
-  const labSubj=new Set(plan.info.lessons.filter(l=>l.t==="ЛР").map(l=>l.s));
-  const labs=tasks.filter(t=>t.kind==="lab" && labSubj.has(t.s||t.subj) && !dueToday.includes(t));
-  if (dueToday.length||late.length||labs.length){
-    h += `<div class="card tasks"><div class="row between"><b>Учёба на этот день</b><a class="small link" href="#study">все задачи ›</a></div>`;
-    if (late.length) h += `<div class="sub warnc">Просрочено</div>`+late.map(t=>taskRow(t)).join("");
-    if (dueToday.length) h += `<div class="sub">Сдать / сделать</div>`+dueToday.map(t=>taskRow(t,{noDue:true})).join("");
-    if (labs.length) h += `<div class="sub">Несданные лабы — сегодня есть ЛР</div>`+labs.map(t=>taskRow(t)).join("");
-    h += `</div>`;
-  }
+  // дела, платежи, учёба, бюджет
+  h += lifeDayHtml(d, plan);
 
   plan.info.ex.forEach(e=>{
     if (e.kind==="holiday"||e.kind==="note")
@@ -187,11 +176,15 @@ function renderDay(){
   else if (!plan.bl.length && !plan.info.holiday) h += `<div class="card empty"><div class="big">☕</div><div><b>Пар нет</b></div><div class="muted small">${d.getDay()===0?"Воскресенье":"Свободный день"}</div></div>`;
 
   h += `<div class="tl">`;
-  plan.items.forEach(it=>{
+  const tItems=[...plan.items, ...lifeTimelineItems(d)].sort((x,y)=>x.t-y.t);
+  tItems.forEach(it=>{
     const cls = it.kind==="lesson" ? it.cls : it.kind;
     const tm = it.t>=0 ? `${fmt(it.t)}${it.end>it.t && it.kind!=="road"?`<small>${fmt(it.end)}</small>`:""}` : "—";
     let extra="";
     if (it.from) extra = liveHtml(it, isToday) + `<a class="maplink" href="${mapUrl(it.from,it.to)}" target="_blank" rel="noopener">Маршрут в Яндекс Картах ↗</a>`;
+    if (it.kind==="todo"){
+      h += `<div class="it" data-t="${it.t}" data-e="${it.end}"><div class="tm">${fmt(it.t)}</div><div class="blk todoblk">${todoRow(it.todo,d)}</div></div>`; return;
+    }
     if (it.kind==="lesson" && dayNum(d)<=dayNum(today())){
       const m=missedPairs(store.json("attend",{}), d);
       const ps=[]; for(let p=it.pFrom;p<=it.pTo;p++) ps.push(p);
@@ -211,7 +204,9 @@ function renderDay(){
   h += sleepCardHtml(d);
   h += `<div class="card"><div class="row between"><b>Заметки на этот день</b><span class="muted small">на этом устройстве</span></div>
     <textarea id="note" placeholder="Что взять с собой, перенос пары…">${esc(store.get("note:"+iso(d)))}</textarea></div>`;
+  h += `<button class="fab" id="fab" aria-label="Добавить дело или расход">+</button>`;
   view.innerHTML = h;
+  document.getElementById("fab").onclick=openQuickAdd;
   document.getElementById("note").addEventListener("input", e=>store.set("note:"+iso(d), e.target.value));
   bindSleep();
   if (isToday) updateLive();
@@ -434,7 +429,7 @@ function renderStudy(){
 
   // предметы
   h+=`<h2 class="sec">Предметы</h2>`+subjectsHtml();
-  view.innerHTML=h;
+  view.innerHTML=delaSegHtml()+h;
 
   let kind="lab";
   document.querySelectorAll("#kindSeg button").forEach(b=>b.onclick=()=>{ kind=b.dataset.k; document.querySelectorAll("#kindSeg button").forEach(x=>x.classList.toggle("on",x===b)); });
@@ -753,9 +748,9 @@ function animateIn(){
   setTimeout(()=>els.forEach(el=>el.classList.remove("rise")), 1400);
 }
 
-const VIEWS = { day:renderDay, week:renderWeek, study:renderStudy, abs:renderAbs, gym:renderGym, fuel:renderFuel, info:renderInfo };
+const VIEWS = { day:renderDay, week:renderWeek, dela:renderDela, abs:renderAbs, gym:renderGym, fuel:renderFuel, money:renderMoney, info:renderInfo };
 function route(anim){
-  let v=hashNow(); if (v==="subjects") v="study"; if (!VIEWS[v]) v="day";
+  let v=hashNow(); if (v==="subjects"||v==="study"){ v="dela"; state.delaSub="study"; } if (!VIEWS[v]) v="day";
   document.querySelectorAll("nav.tabs a, .infobtn").forEach(a=>a.classList.toggle("on", a.dataset.v===v));
   VIEWS[v]();
   const p=parity(today()); const c=document.getElementById("parityChip");
@@ -772,6 +767,19 @@ view.addEventListener("click", e=>{
   if (at){ const [dd,p]=at.dataset.att.split("|"); const A=store.json("attend",{}); A[dd]=A[dd]||{}; const x=A[dd][p];
     if (!x) A[dd][p]={miss:true,exc:false}; else if (!x.exc) x.exc=true; else delete A[dd][p];
     if (!Object.keys(A[dd]).length) delete A[dd]; store.put("attend",A); const y=scrollY; renderDay(); scrollTo(0,y); return; }
+  const td=e.target.closest("[data-todo]"), tdd=e.target.closest("[data-tododel]"), pay=e.target.closest("[data-pay]"), rgd=e.target.closest("[data-regdel]"),
+    md=e.target.closest("[data-mdel]"), mm=e.target.closest("[data-mm]"), gh=e.target.closest("[data-gohash]"), ds=e.target.closest("[data-dsub]");
+  const rerender=()=>{ const y=scrollY; route(false); scrollTo(0,y); };
+  if (td){ const [id,dd]=td.dataset.todo.split("|"); const done=toggleTodo(id,dd); if(done) toast("Сделано ✓"); rerender(); return; }
+  if (tdd){ const all=todosAll(), t=all.find(x=>x.id===tdd.dataset.tododel); saveTodos(all.filter(x=>x!==t));
+    toast("Дело удалено",{label:"Вернуть",fn:()=>{ const a2=todosAll(); a2.push(t); saveTodos(a2); rerender(); }}); rerender(); return; }
+  if (pay){ const [id,ym]=pay.dataset.pay.split("|"); payRegular(id,ym); rerender(); return; }
+  if (rgd){ store.put("regular", store.json("regular",[]).filter(x=>x.id!==rgd.dataset.regdel)); toast("Платёж удалён"); rerender(); return; }
+  if (md){ const all=moneyAll(), o=all.find(x=>x.id===md.dataset.mdel); store.put("money", all.filter(x=>x!==o));
+    toast("Удалено",{label:"Вернуть",fn:()=>{ const a2=moneyAll(); a2.push(o); store.put("money",a2); rerender(); }}); rerender(); return; }
+  if (mm){ const [y,m]=state.moneyYM.split("-").map(Number); const nd=new Date(y,m-1+(+mm.dataset.mm),1); state.moneyYM=ymOf(nd); renderMoney(); return; }
+  if (gh){ location.hash=gh.dataset.gohash; return; }
+  if (ds){ state.delaSub=ds.dataset.dsub; renderDela(); return; }
   const rv=e.target.closest("[data-rview]"), rd=e.target.closest("[data-rdel]");
   if (rd){ deleteReceipt(rd.dataset.rdel); return; }
   if (rv){ showReceipt(rv.dataset.rview); return; }

@@ -267,6 +267,25 @@ nav.tabs a{font-size:10.5px;padding:8px 1px 9px;white-space:nowrap}
 .pvbar button{color:#fff;font-size:26px;width:40px;height:40px} .pvbar button:disabled{opacity:.25}
 .pvdel{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--gym);color:#fff;font-weight:700;padding:11px 22px;border-radius:99px}
 #toast.act{display:flex;align-items:center;gap:12px;pointer-events:auto} #toast button{color:#7da2ff;font-weight:800;font-size:14px}
+/* дела, деньги, лента */
+.todoblk{padding:4px 12px;border-left-color:var(--accent)} .todoblk .task{border-top:0}
+.task.todo.late .tt2{color:var(--warn)}
+.fab{position:fixed;right:max(16px,calc(50% - 344px));bottom:calc(76px + env(safe-area-inset-bottom));width:54px;height:54px;border-radius:50%;background:var(--accent);color:#fff;font-size:30px;font-weight:300;line-height:54px;box-shadow:0 6px 18px rgba(47,91,211,.4);z-index:15;transition:transform .15s}
+.fab:active{transform:scale(.9)}
+.sheet{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center;opacity:0;transition:opacity .25s}
+.sheet.show{opacity:1} .sheetbox{width:100%;max-width:720px;background:var(--card);border-radius:18px 18px 0 0;padding:8px 14px calc(16px + env(safe-area-inset-bottom));transform:translateY(40px);transition:transform .25s;max-height:88vh;overflow:auto}
+.sheet.show .sheetbox{transform:none} .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:4px auto 10px}
+.qseg{margin-bottom:10px}
+.todoform select,.regform select,.moneyform select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:42px}
+.amt{display:flex;align-items:center;gap:6px;border-bottom:2px solid var(--accent);padding:2px 4px}
+.amt input{border:0!important;background:transparent!important;font-size:34px!important;font-weight:800;padding:4px 0!important;min-height:0!important}
+.amt span{font-size:26px;font-weight:700;color:var(--muted)}
+.cats{display:flex;flex-wrap:wrap;gap:6px}
+.cat{font-size:13px;padding:6px 10px;border-radius:99px;background:var(--bg);border:1px solid var(--line);color:var(--ink)}
+.cat.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.moneyhero b{display:block;font-size:34px;letter-spacing:-1px;color:var(--pz);margin:2px 0} .moneyhero b.neg,.neg{color:var(--gym)!important}
+.catrow{padding:6px 0}
+.moneyline{display:flex;justify-content:space-between;gap:8px;font-size:13.5px;cursor:pointer} .moneyline span:last-child{color:var(--pz);font-weight:700}
 /* итоги и сон */
 .summ .sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 8px;text-align:center}
 .summ .sgrid b{display:block;font-size:24px;color:var(--accent);letter-spacing:-.5px}
@@ -324,15 +343,17 @@ nav.tabs a{transition:color .2s} nav.tabs a .ic{transition:transform .25s} nav.t
 <nav class="tabs"><div class="in">
   <a href="#day" data-v="day"><span class="ic">◷</span>День</a>
   <a href="#week" data-v="week"><span class="ic">▦</span>Неделя</a>
-  <a href="#study" data-v="study"><span class="ic">✎</span>Учёба</a>
+  <a href="#dela" data-v="dela"><span class="ic">✓</span>Дела</a>
   <a href="#abs" data-v="abs"><span class="ic">✕</span>Пропуски</a>
   <a href="#gym" data-v="gym"><span class="ic">♥</span>Зал</a>
   <a href="#fuel" data-v="fuel"><span class="ic">⛽</span>Бензин</a>
+  <a href="#money" data-v="money"><span class="ic">₽</span>Деньги</a>
 </div></nav>
 
 
 <script src="data.js"></script>
 <script src="core.js"></script>
+<script src="life.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
