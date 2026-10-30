@@ -233,41 +233,93 @@ function updateLive(){
   box.innerHTML = msg ? `<div class="status">${esc(msg)}</div>` : "";
 }
 
-/* ---------- сон: калькулятор подъёма ---------- */
-function wakeCalc(bedMin, ready, sp){
-  // bedMin — минуты от полуночи вечера (может быть >1440, если после полуночи)
-  const S=DATA.sleep, prep = ready ? S.prepReady : S.prepNotReady;
-  const wake = sp.first - prep + 1440;                 // в минутах от полуночи предыдущего дня
-  const asleep = bedMin + S.fallAsleep, sleepLen = wake - asleep;
-  let cyc=null; const n=Math.floor(sleepLen/S.cycle);
-  if (n>=1){ const cw = asleep + n*S.cycle; if (wake-cw>=10 && wake-cw<=40) cyc={ at:cw-1440, n }; }
-  return { prep, wake: wake-1440, sleepLen, cyc };
+/* ---------- сон: калькулятор по фазам ---------- */
+// Цикл сна ~90 мин: лёгкий сон → глубокий → снова лёгкий → быстрый (REM).
+// Просыпаться легче всего в конце цикла (после REM), тяжелее всего — из глубокого сна.
+const sleepCfg = () => ({ fall: DATA.sleep.fallAsleep, cyc: DATA.sleep.cycle, ...store.json("sleepCfg", {}) });
+function phaseAt(min, cyc){ // min — минут от засыпания
+  const p=((min%cyc)+cyc)%cyc/cyc, k=Math.floor(min/cyc);
+  if (p<0.1 || p>0.9) return { name:"конец цикла, лёгкий сон", cls:"ok", txt:"проснётесь легко" };
+  if (p>=0.7) return { name:"быстрый сон (REM)", cls:"mid", txt:"нормально, но может быть вяло" };
+  if (p>=0.15 && p<0.55) return { name: k<3 ? "глубокий сон" : "средний сон", cls: k<3?"bad":"mid", txt: k<3 ? "проснуться будет тяжело" : "терпимо" };
+  return { name:"лёгкий сон", cls:"mid", txt:"терпимо" };
 }
-function sleepCardHtml(d){
+const cyclesWord = n => n%10===1&&n%100!==11?"цикл":(n%10>=2&&n%10<=4&&(n%100<10||n%100>=20))?"цикла":"циклов";
+function sleepCtx(d){
   const isToday=dayNum(d)===dayNum(today()), night = isToday && nowMin()<5*60;
-  const tm = night ? d : addDays(d,1), sp=sleepPlan(tm); if (!sp) return "";
-  const label = night ? "Сегодня" : dayNum(tm)-dayNum(today())===1 ? "Завтра" : WD_FULL[tm.getDay()];
-  const st=store.json("sleepUI",{ready:true});
+  const tm = night ? d : addDays(d,1), sp=sleepPlan(tm); if (!sp) return null;
+  const st=store.json("sleepUI",{ready:true, mode:"wake"});
+  const prep = st.ready ? DATA.sleep.prepReady : DATA.sleep.prepNotReady;
+  const deadline = sp.first - prep + 1440;                       // минуты от полуночи накануне
   let bed = st.bed!=null && st.bedFor===iso(tm) ? st.bed : 23*60+30;
   if (isToday && !(st.bed!=null && st.bedFor===iso(tm))){ const n=nowMin(); if (n>=20*60) bed=ceil5(n+15); else if (night) bed=ceil5(n+15)+1440; }
-  const r=wakeCalc(bed, st.ready, sp);
-  const bedStr=fmt(bed%1440);
-  window._slFor=iso(tm);
-  return `<div class="card sleep"><div class="moon">☾</div><div style="flex:1">
-    <div class="small muted">${label}: ${sp.what}</div>
-    <div class="row sl-in"><label>Ложусь в <input type="time" id="slBed" value="${String(Math.floor((bed%1440)/60)).padStart(2,"0")}:${String(bed%60).padStart(2,"0")}"></label>
-      <div class="seg mini sl-seg"><button data-ready="1" class="${st.ready?"on":""}">Всё готово</button><button data-ready="0" class="${st.ready?"":"on"}">Не готово</button></div></div>
-    ${r.sleepLen<=0 ? `<b style="color:var(--warn)">Не успеете выспаться — вставать в ${fmt(r.wake)}</b>` :
-      `<div class="sl-out"><b>Вставать в ${fmt(r.wake)}</b> <span class="muted small">· сна ~${dur(r.sleepLen)} · сборы ${r.prep} мин</span></div>
-       ${r.cyc?`<div class="small muted">По циклам сна мягче проснуться в ${fmt(r.cyc.at)} (${r.cyc.n} ${r.cyc.n%10===1&&r.cyc.n!==11?"цикл":r.cyc.n>=2&&r.cyc.n<=4?"цикла":"циклов"}) — если хотите в запас.</div>`:""}
-       ${r.sleepLen<6*60?`<div class="small" style="color:var(--warn)">Меньше 6 часов сна.</div>`:""}`}
-  </div></div>`;
+  return { tm, sp, st, prep, deadline, bed, night,
+    label: night ? "Сегодня" : dayNum(tm)-dayNum(today())===1 ? "Завтра" : WD_FULL[tm.getDay()] };
+}
+function hypnogram(asleep, endAt, marks, cyc){
+  const W=320, H=64, span=Math.max(endAt-asleep, cyc), X=m=>8+(m-asleep)/span*(W-16), Y=v=>6+v*(H-22);
+  const pts=[]; for (let k=0; k*cyc<span+cyc; k++){ const b=asleep+k*cyc, deep=Math.max(.45, .95-k*.13);
+    [[0,.15],[.12,.4],[.25,deep],[.45,deep],[.6,.35],[.78,.05],[.9,.08],[1,.15]].forEach(([f,v])=>{ const m=b+f*cyc; if (m<=asleep+span+2) pts.push(`${X(m).toFixed(1)},${Y(v).toFixed(1)}`); }); }
+  let s=`<svg class="hyp" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><polyline points="${pts.join(" ")}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  s+=`<text x="2" y="${Y(.05)+3}" class="hl">REM</text><text x="2" y="${Y(.9)}" class="hl">глуб.</text>`;
+  marks.forEach(m=>{ if (m.at<asleep||m.at>asleep+span+1) return; const x=X(m.at).toFixed(1);
+    s+=`<line x1="${x}" x2="${x}" y1="2" y2="${H-14}" class="mk ${m.cls}"/><text x="${x}" y="${H-2}" text-anchor="middle" class="ml ${m.cls}">${fmt(m.at%1440)}</text>`; });
+  return s+`</svg>`;
+}
+function sleepCardHtml(d){
+  const c=sleepCtx(d); if (!c) return "";
+  const cfg=sleepCfg(), mode=c.st.mode||"wake", dl=c.deadline;
+  let h=`<div class="card sleep"><div class="row between"><b>☾ Сон</b><span class="small muted">${c.label}: ${c.sp.what}</span></div>
+    <div class="seg mini sl-seg"><button data-ready="1" class="${c.st.ready?"on":""}">Всё готово · ${DATA.sleep.prepReady} мин</button><button data-ready="0" class="${c.st.ready?"":"on"}">Не готово · ${DATA.sleep.prepNotReady} мин</button></div>
+    <div class="small muted" style="margin:6px 0">Крайний подъём — <b style="color:var(--ink)">${fmt(dl%1440)}</b></div>
+    <div class="seg mini sl-mode"><button data-mode="wake" class="${mode==="wake"?"on":""}">Ложусь в…</button><button data-mode="bed" class="${mode==="bed"?"on":""}">Когда лечь?</button></div>`;
+  if (mode==="wake"){
+    const asleep=c.bed+cfg.fall, total=dl-asleep;
+    h+=`<div class="row sl-in"><label>Ложусь в <input type="time" id="slBed" value="${String(Math.floor((c.bed%1440)/60)).padStart(2,"0")}:${String(c.bed%60).padStart(2,"0")}"></label><span class="small muted">засыпаю ~${cfg.fall} мин</span></div>`;
+    if (total<=30){ h+=`<div class="sl-warn">До крайнего подъёма меньше получаса сна. Лучше вообще не ложиться надолго — или будильник на ${fmt(dl%1440)}.</div></div>`; return h; }
+    const opts=[]; for (let n=1; asleep+n*cfg.cyc<=dl; n++) opts.push({ n, at:asleep+n*cfg.cyc });
+    const ph=phaseAt(dl-asleep, cfg.cyc);
+    let best;
+    if (ph.cls==="ok"){
+      const n=Math.max(1,Math.round(total/cfg.cyc));
+      best={ n, at:dl };
+      h+=`<div class="sl-best ok"><b>Будильник на ${fmt(dl%1440)}</b><span>${dur(total)} сна · ≈${n} ${cyclesWord(n)} — крайний подъём попадает на конец цикла, проснётесь легко</span></div>`;
+    } else {
+      best=opts.filter(o=>o.n>=3).pop() || opts[opts.length-1];
+      if (best) h+=`<div class="sl-best ok"><b>По фазам: ${fmt(best.at%1440)}</b><span>${best.n} ${cyclesWord(best.n)} · ${dur(best.n*cfg.cyc)} сна · конец цикла, проснётесь легче · на ${dl-best.at} мин раньше крайнего</span></div>`;
+      h+=`<div class="sl-best ${ph.cls}"><b>Крайний: ${fmt(dl%1440)}</b><span>${dur(total)} сна · попадает на ${ph.name} — ${ph.txt}</span></div>`;
+    }
+    const early=opts.filter(o=>o.n>=3 && Math.abs(o.at-best.at)>5).slice(-2).reverse();
+    if (early.length) h+=`<div class="small muted" style="margin-top:4px">Ещё концы циклов: ${early.map(o=>`${fmt(o.at%1440)} (${o.n} ${cyclesWord(o.n)})`).join(" · ")}</div>`;
+    if (total<6*60) h+=`<div class="sl-warn">Меньше 6 часов сна — завтра будет тяжело.</div>`;
+    h+=hypnogram(asleep, dl+5, [...(best && best.at!==dl?[{at:best.at,cls:"ok"}]:[]), {at:dl,cls:best&&best.at===dl?"ok":"dl"}], cfg.cyc);
+  } else {
+    const wake = dl;
+    const nowF = dayNum(d)===dayNum(today()) ? (c.night ? nowMin()+1440 : nowMin()) : -1e9;
+    const rows=[6,5,4].map(n=>{ const bed=wake-n*cfg.cyc-cfg.fall; return { n, bed, past: bed<nowF }; });
+    h+=`<div class="small muted" style="margin:6px 0">Чтобы проснуться в конце цикла ровно в ${fmt(wake%1440)}:</div>`;
+    rows.forEach(r=>{ const tag = r.n===6?"идеально":r.n===5?"нормально":"минимум";
+      h+=`<div class="sl-row${r.past?" past":""}"><b>${fmt(((r.bed%1440)+1440)%1440)}</b><span>${r.n} ${cyclesWord(r.n)} · ${dur(r.n*cfg.cyc)} сна</span><em class="${r.past?"mid":r.n===4?"mid":"ok"}">${r.past?"уже поздно":tag}</em></div>`; });
+    h+=`<div class="small muted" style="margin-top:4px">Время отбоя уже с учётом ~${cfg.fall} мин на засыпание.</div>`;
+  }
+  h+=`<details class="sl-cfg"><summary class="small">Настроить под себя</summary>
+    <div class="row sl-in"><label>Засыпаю за <input type="number" id="slFall" min="0" max="60" step="5" value="${cfg.fall}"> мин</label>
+    <label>Цикл <input type="number" id="slCyc" min="70" max="120" step="5" value="${cfg.cyc}"> мин</label></div>
+    <div class="small muted">Цикл у большинства 80–110 мин. Если по будильнику «по фазам» всё равно просыпаетесь разбитым — попробуйте 100.</div></details>`;
+  window._slFor=iso(c.tm);
+  return h+`</div>`;
 }
 function bindSleep(){
-  const inp=document.getElementById("slBed"); if(!inp) return;
-  const save=(patch)=>{ const st=store.json("sleepUI",{ready:true}); Object.assign(st,patch); store.put("sleepUI",st); const y=scrollY; renderDay(); scrollTo(0,y); };
-  inp.addEventListener("change",()=>{ const [h,m]=inp.value.split(":").map(Number); let b=h*60+m; if (b<12*60) b+=1440; save({bed:b, bedFor:window._slFor}); });
-  document.querySelectorAll(".sl-seg button").forEach(btn=>btn.onclick=()=>save({ready:btn.dataset.ready==="1"}));
+  const card=document.querySelector(".sleep"); if(!card) return;
+  const rerender=()=>{ const y=scrollY; const open=card.querySelector(".sl-cfg")&&card.querySelector(".sl-cfg").open; renderDay(); scrollTo(0,y); if(open){ const c=document.querySelector(".sl-cfg"); if(c) c.open=true; } };
+  const save=patch=>{ const st=store.json("sleepUI",{ready:true}); Object.assign(st,patch); store.put("sleepUI",st); rerender(); };
+  const inp=document.getElementById("slBed");
+  if (inp) inp.addEventListener("change",()=>{ const [h,m]=inp.value.split(":").map(Number); let b=h*60+m; if (b<12*60) b+=1440; save({bed:b, bedFor:window._slFor}); });
+  card.querySelectorAll(".sl-seg button").forEach(b=>b.onclick=()=>save({ready:b.dataset.ready==="1"}));
+  card.querySelectorAll(".sl-mode button").forEach(b=>b.onclick=()=>save({mode:b.dataset.mode}));
+  const cfgSave=()=>{ const f=+document.getElementById("slFall").value, cy=+document.getElementById("slCyc").value;
+    store.put("sleepCfg",{ fall: isFinite(f)?Math.min(60,Math.max(0,f)):15, cyc: isFinite(cy)&&cy>=60?Math.min(130,cy):90 }); rerender(); };
+  ["slFall","slCyc"].forEach(id=>{ const e=document.getElementById(id); if(e) e.addEventListener("change",cfgSave); });
 }
 
 /* ---------- итоги недели ---------- */
