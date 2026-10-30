@@ -592,65 +592,124 @@ function shrinkImage(file, max, q){
   return new Promise((ok,fail)=>{ const url=URL.createObjectURL(file), img=new Image();
     img.onload=()=>{ const k=Math.min(1, max/Math.max(img.width,img.height)), c=document.createElement("canvas");
       c.width=Math.round(img.width*k); c.height=Math.round(img.height*k); c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-      URL.revokeObjectURL(url); c.toBlob(b=>b?ok({blob:b, thumb:max<=240?c.toDataURL("image/jpeg",q):null}):fail(new Error("canvas")),"image/jpeg",q); };
+      URL.revokeObjectURL(url); c.toBlob(b=>b?ok({blob:b, thumb:max<=400?c.toDataURL("image/jpeg",q):null}):fail(new Error("canvas")),"image/jpeg",q); };
     img.onerror=()=>{ URL.revokeObjectURL(url); fail(new Error("img")); }; img.src=url; });
 }
-const fuelDraft = { photo:null, thumb:null, preview:null, liters:null };
+const fuelDraft = { liters:null };
+// миграция: фото, прикреплённые к заправкам раньше, переносим в «Чеки»
+(function(){ const f=store.json("fuel",[]), r=store.json("receipts",[]); let ch=false;
+  f.forEach(x=>{ if (x.thumb){ if(!r.find(y=>y.id===x.id)) r.push({ id:x.id, date:x.date, at:x.at||"", thumb:x.thumb }); delete x.thumb; ch=true; } });
+  if (ch){ store.put("fuel",f); store.put("receipts",r); } })();
+
 function renderFuel(){
+  const sub=state.fuelSub||"fills";
+  let h=`<div class="seg fuelseg"><button data-fsub="fills" class="${sub==="fills"?"on":""}">Заправки</button><button data-fsub="checks" class="${sub==="checks"?"on":""}">Чеки${store.json("receipts",[]).length?` · ${store.json("receipts",[]).length}`:""}</button></div><div id="fuelBody"></div>`;
+  view.innerHTML=h;
+  view.querySelectorAll("[data-fsub]").forEach(b=>b.onclick=()=>{ state.fuelSub=b.dataset.fsub; renderFuel(); });
+  sub==="fills" ? renderFills() : renderChecks();
+}
+
+function renderFills(){
+  const body=document.getElementById("fuelBody");
   const fills=store.json("fuel",[]).filter(f=>f.l!=null).sort((a,b)=>(b.date+(b.at||"")).localeCompare(a.date+(a.at||"")));
   const lastL = fuelDraft.liters || (fills[0] && Math.round(fills[0].l)) || 30;
   const LIM=DATA.fuel.monthLimit, usedIn = ym => fills.filter(x=>x.date.startsWith(ym)).reduce((s,x)=>s+x.l,0);
   const ym0=iso(today()).slice(0,7), used0=usedIn(ym0), left0=Math.max(0,LIM-used0), pct=Math.min(100,Math.round(used0/LIM*100));
+  const col = pct>=100?"var(--gym)":pct>=80?"var(--warn)":"var(--pz)";
   let h=`<div class="card limcard"><div class="row between"><b>${MONTHS_NOM[today().getMonth()]}</b><span class="small muted">лимит ${LIM} л</span></div>
-    <div class="limnum"><b style="color:${pct>=100?"var(--gym)":pct>=80?"var(--warn)":"var(--pz)"}">${left0}</b><span>л осталось · заправлено ${used0} л</span></div>
-    <div class="bar"><i style="width:${pct}%;background:${pct>=100?"var(--gym)":pct>=80?"var(--warn)":"var(--pz)"}"></i></div></div>`;
-  h+=`<form class="card fuelf" id="fillF">
-    <b>Новая заправка</b>
-    <label class="photobox ${fuelDraft.preview?"has":""}">${fuelDraft.preview?`<img src="${fuelDraft.preview}" alt="Чек">`:`<span class="pi">📷</span><span>Фото чека</span>`}
-      <input type="file" id="fPh" accept="image/*" hidden></label>
+    <div class="limnum"><b style="color:${col}">${left0}</b><span>л осталось · заправлено ${used0} л</span></div>
+    <div class="bar"><i style="width:${pct}%;background:${col}"></i></div></div>
+  <form class="card fuelf" id="fillF"><b>Новая заправка</b>
     <div class="wheelwrap"><div class="wheel" id="wheel">${[...Array(40)].map((_,i)=>`<div class="wi" data-v="${i+1}">${i+1}</div>`).join("")}</div><div class="wband"></div><span class="wunit">л</span></div>
     <div id="limHint" class="small"></div>
     <input type="date" id="fD" value="${iso(today())}">
-    <button class="primary" type="submit">Сохранить</button>
-  </form>`;
-  if (!fills.length) h+=`<div class="card muted small">Пока заправок нет. Сфотографируйте чек и выберите литры на рулетке.</div>`;
+    <button class="primary" type="submit">Сохранить</button></form>`;
+  if (!fills.length) h+=`<div class="card muted small">Пока заправок нет — выберите литры на рулетке и сохраните.</div>`;
   let curM="";
   fills.forEach(f=>{
     const m=f.date.slice(0,7);
-    if (m!==curM){ curM=m; const sum=fills.filter(x=>x.date.startsWith(m)).reduce((s,x)=>s+x.l,0); const d=parseISO(m+"-01");
+    if (m!==curM){ curM=m; const sum=usedIn(m), d=parseISO(m+"-01");
       h+=`<h2 class="sec">${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()} <span class="small" style="font-weight:600;color:${sum>LIM?"var(--gym)":"var(--muted)"}">· ${sum} из ${LIM} л</span></h2>`; }
-    h+=`<div class="card fillrow">${f.thumb?`<button class="fthumb" data-photo="${f.id}"><img src="${f.thumb}" alt="Чек"></button>`:`<div class="fthumb none">⛽</div>`}
-      <div style="flex:1"><b>${f.l} л</b><div class="small muted">${dateTitle(parseISO(f.date))}</div></div>
+    h+=`<div class="card fillrow"><div class="fthumb none">⛽</div><div style="flex:1"><b>${f.l} л</b><div class="small muted">${dateTitle(parseISO(f.date))}</div></div>
       <button class="tdel" data-fdel="${f.id}" aria-label="Удалить">×</button></div>`;
   });
-  view.innerHTML=h;
-  // рулетка
+  body.innerHTML=h;
   const wh=document.getElementById("wheel"), IH=44;
   const hint=()=>{ const ym=(document.getElementById("fD").value||iso(today())).slice(0,7), left=LIM-usedIn(ym), v=fuelDraft.liters||lastL, el=document.getElementById("limHint");
     el.className="small"; if (left-v<0){ el.className="small limwarn"; el.textContent=`Превысит лимит месяца на ${v-left} л (осталось ${Math.max(0,left)} л)`; }
     else el.textContent=`После заправки останется ${left-v} л из ${LIM}`;
     wh.querySelectorAll(".wi").forEach(e=>e.classList.toggle("over", +e.dataset.v>left)); };
   const setActive=()=>{ const v=Math.min(40,Math.max(1,Math.round(wh.scrollTop/IH)+1)); fuelDraft.liters=v;
-    wh.querySelectorAll(".wi").forEach(e=>{ const d=Math.abs(+e.dataset.v-v); e.className="wi"+(d===0?" on":d===1?" n1":d===2?" n2":""); }); hint(); };
+    wh.querySelectorAll(".wi").forEach(e=>{ const d=Math.abs(+e.dataset.v-v); e.classList.remove("on","n1","n2"); if(d===0)e.classList.add("on"); else if(d===1)e.classList.add("n1"); else if(d===2)e.classList.add("n2"); }); hint(); };
   document.getElementById("fD").addEventListener("change",hint);
   requestAnimationFrame(()=>{ wh.scrollTop=(lastL-1)*IH; setActive(); });
   let raf=0; wh.addEventListener("scroll",()=>{ cancelAnimationFrame(raf); raf=requestAnimationFrame(setActive); },{passive:true});
   wh.addEventListener("click",e=>{ const it=e.target.closest(".wi"); if(it) wh.scrollTo({top:(+it.dataset.v-1)*IH, behavior:"smooth"}); });
-  document.getElementById("fPh").onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
-    try{ const big=await shrinkImage(f,1600,.78), th=await shrinkImage(f,220,.6); fuelDraft.photo=big.blob; fuelDraft.thumb=th.thumb; if(fuelDraft.preview) URL.revokeObjectURL(fuelDraft.preview); fuelDraft.preview=URL.createObjectURL(big.blob); renderFuel(); }
-    catch(err){ toast("Не получилось открыть фото"); } };
-  document.getElementById("fillF").onsubmit=async e=>{ e.preventDefault();
-    const id=uid(), rec={ id, date:document.getElementById("fD").value||iso(today()), at:new Date().toISOString(), l:fuelDraft.liters||lastL, thumb:fuelDraft.thumb||null };
-    if (fuelDraft.photo){ try{ await PHOTOS.put(id, fuelDraft.photo); }catch(err){ toast("Фото не сохранилось — мало места"); rec.thumb=null; } }
-    const all=store.json("fuel",[]); all.push(rec); store.put("fuel",all);
-    if(fuelDraft.preview) URL.revokeObjectURL(fuelDraft.preview); fuelDraft.photo=null; fuelDraft.thumb=null; fuelDraft.preview=null; toast(`Заправка ${rec.l} л сохранена`); renderFuel(); };
+  document.getElementById("fillF").onsubmit=e=>{ e.preventDefault();
+    const rec={ id:uid(), date:document.getElementById("fD").value||iso(today()), at:new Date().toISOString(), l:fuelDraft.liters||lastL };
+    const all=store.json("fuel",[]); all.push(rec); store.put("fuel",all); toast(`Заправка ${rec.l} л сохранена`); renderFuel(); };
 }
-function showPhoto(id){
-  PHOTOS.get(id).then(b=>{ if(!b){ toast("Фото не найдено на этом устройстве"); return; }
-    const url=URL.createObjectURL(b), ov=document.createElement("div"); ov.className="photoview";
-    ov.innerHTML=`<img src="${url}" alt="Чек"><button aria-label="Закрыть">×</button>`;
-    ov.onclick=()=>{ ov.classList.remove("show"); setTimeout(()=>{ ov.remove(); URL.revokeObjectURL(url); },250); };
-    document.body.appendChild(ov); requestAnimationFrame(()=>ov.classList.add("show")); }).catch(()=>toast("Фото недоступно"));
+
+/* ---------- чеки ---------- */
+function renderChecks(){
+  const body=document.getElementById("fuelBody");
+  const list=store.json("receipts",[]).sort((a,b)=>(b.date+(b.at||"")).localeCompare(a.date+(a.at||"")));
+  let h=`<label class="card addphoto"><span class="pi">📷</span><b>Добавить чеки</b><span class="small muted">Камера или галерея, можно несколько сразу</span>
+    <input type="file" id="rcIn" accept="image/*" multiple hidden></label><div id="rcProg" class="small muted" style="margin:0 2px 8px"></div>`;
+  if (!list.length) h+=`<div class="card muted small">Чеков пока нет.</div>`;
+  let curM="";
+  list.forEach((r,i)=>{
+    const m=r.date.slice(0,7);
+    if (m!==curM){ if(curM) h+=`</div>`; curM=m; const d=parseISO(m+"-01"); h+=`<h2 class="sec">${MONTHS_NOM[d.getMonth()]} ${d.getFullYear()}</h2><div class="rgrid">`; }
+    h+=`<div class="rc"><button class="rcimg" data-rview="${r.id}"><img src="${r.thumb}" alt="Чек ${shortDate(parseISO(r.date))}"></button>
+      <span class="rcd">${parseISO(r.date).getDate()} ${MONTHS[parseISO(r.date).getMonth()].slice(0,3)}</span>
+      <button class="rcdel" data-rdel="${r.id}" aria-label="Удалить чек">×</button></div>`;
+  });
+  if (curM) h+=`</div>`;
+  h+=`<p class="small muted" style="margin:10px 2px">Фото хранятся только на этом телефоне.</p>`;
+  body.innerHTML=h;
+  document.getElementById("rcIn").onchange=async e=>{
+    const files=[...e.target.files]; if(!files.length) return; const prog=document.getElementById("rcProg"); let ok=0;
+    for (const [i,f] of files.entries()){
+      prog.textContent=`Загружаю ${i+1} из ${files.length}…`;
+      try{ const big=await shrinkImage(f,1600,.8), th=await shrinkImage(f,320,.7), id=uid();
+        await PHOTOS.put(id,big.blob);
+        const d=f.lastModified? new Date(f.lastModified) : new Date();
+        const r=store.json("receipts",[]); r.push({ id, date:iso(d), at:new Date().toISOString(), thumb:th.thumb }); store.put("receipts",r); ok++;
+      }catch(err){}
+    }
+    toast(ok===files.length ? (ok>1?`Добавлено чеков: ${ok}`:"Чек добавлен") : `Добавлено ${ok} из ${files.length}`); renderFuel();
+  };
+}
+function deleteReceipt(id){
+  const all=store.json("receipts",[]), rec=all.find(x=>x.id===id); if(!rec) return;
+  store.put("receipts", all.filter(x=>x.id!==id));
+  let undone=false;
+  toast("Чек удалён", { label:"Вернуть", fn:()=>{ undone=true; const r=store.json("receipts",[]); r.push(rec); store.put("receipts",r); if(hashNow()==="fuel") renderFuel(); } });
+  setTimeout(()=>{ if(!undone) PHOTOS.del(id); }, 5000);
+  if (hashNow()==="fuel") renderFuel();
+}
+function showReceipt(id){
+  const list=store.json("receipts",[]).sort((a,b)=>(b.date+(b.at||"")).localeCompare(a.date+(a.at||"")));
+  let idx=list.findIndex(x=>x.id===id); if (idx<0) return;
+  const ov=document.createElement("div"); ov.className="photoview"; let url=null;
+  const close=()=>{ ov.classList.remove("show"); setTimeout(()=>{ ov.remove(); if(url) URL.revokeObjectURL(url); },250); };
+  const show=()=>{ const r=list[idx];
+    ov.innerHTML=`<img alt="Чек" src="${r.thumb}"><div class="pvbar"><button data-pv="prev" ${idx<=0?"disabled":""}>‹</button><span>${dateTitle(parseISO(r.date))}</span><button data-pv="next" ${idx>=list.length-1?"disabled":""}>›</button></div>
+      <button class="pvclose" data-pv="close" aria-label="Закрыть">×</button><button class="pvdel" data-pv="del">Удалить чек</button>`;
+    PHOTOS.get(r.id).then(b=>{ if(!b) return; if(url) URL.revokeObjectURL(url); url=URL.createObjectURL(b); const im=ov.querySelector("img"); if(im) im.src=url; }).catch(()=>{});
+  };
+  ov.addEventListener("click",e=>{ const b=e.target.closest("[data-pv]");
+    if (!b){ if (e.target===ov) close(); return; }
+    const a=b.dataset.pv;
+    if (a==="close") close();
+    else if (a==="prev" && idx>0){ idx--; show(); }
+    else if (a==="next" && idx<list.length-1){ idx++; show(); }
+    else if (a==="del"){ const id2=list[idx].id; close(); deleteReceipt(id2); } });
+  let sx=null; ov.addEventListener("touchstart",e=>{ sx=e.touches[0].clientX; },{passive:true});
+  ov.addEventListener("touchend",e=>{ if(sx==null) return; const dx=e.changedTouches[0].clientX-sx; sx=null;
+    if (dx<-60 && idx<list.length-1){ idx++; show(); } else if (dx>60 && idx>0){ idx--; show(); } },{passive:true});
+  show(); document.body.appendChild(ov); requestAnimationFrame(()=>ov.classList.add("show"));
 }
 
 /* =====================================================================
@@ -683,8 +742,10 @@ function renderInfo(){
 /* =====================================================================
    ОБЩЕЕ
    ===================================================================== */
-function toast(msg){ let t=document.getElementById("toast"); if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
-  t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),1800); }
+function toast(msg, action){ let t=document.getElementById("toast"); if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
+  t.textContent=msg; t.classList.toggle("act", !!action);
+  if (action){ const b=document.createElement("button"); b.textContent=action.label; b.onclick=()=>{ action.fn(); t.classList.remove("show"); }; t.appendChild(b); }
+  t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"), action?5000:1800); }
 
 function animateIn(){
   const els=view.querySelectorAll(":scope > *, .tl > .it");
@@ -711,9 +772,10 @@ view.addEventListener("click", e=>{
   if (at){ const [dd,p]=at.dataset.att.split("|"); const A=store.json("attend",{}); A[dd]=A[dd]||{}; const x=A[dd][p];
     if (!x) A[dd][p]={miss:true,exc:false}; else if (!x.exc) x.exc=true; else delete A[dd][p];
     if (!Object.keys(A[dd]).length) delete A[dd]; store.put("attend",A); const y=scrollY; renderDay(); scrollTo(0,y); return; }
-  const ph=e.target.closest("[data-photo]");
-  if (ph){ showPhoto(ph.dataset.photo); return; }
-  if (fdel){ const id=fdel.dataset.fdel; store.put("fuel", store.json("fuel",[]).filter(x=>x.id!==id)); PHOTOS.del(id); toast("Удалено"); renderFuel(); return; }
+  const rv=e.target.closest("[data-rview]"), rd=e.target.closest("[data-rdel]");
+  if (rd){ deleteReceipt(rd.dataset.rdel); return; }
+  if (rv){ showReceipt(rv.dataset.rview); return; }
+  if (fdel){ const id=fdel.dataset.fdel; store.put("fuel", store.json("fuel",[]).filter(x=>x.id!==id)); toast("Удалено"); renderFuel(); return; }
   if (tk){ setTaskStatus(tk.dataset.task, +tk.dataset.next); route(false); return; }
   if (del){ deleteTask(del.dataset.del); toast("Удалено"); route(false); return; }
   if (gb){ const key=gb.dataset.gd||iso(state.sel); const g=gymLog(); g[key]=g[key]||{}; const v=gb.dataset.gym==="1";

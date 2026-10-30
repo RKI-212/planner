@@ -237,8 +237,6 @@ nav.tabs a{font-size:10.5px;padding:8px 1px 9px;white-space:nowrap}
 .cfggrid input{width:80px;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 7px}
 .fuelf{display:flex;flex-direction:column;gap:10px}
 .fuelf input[type=date]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:9px 10px;min-height:42px}
-.photobox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;height:120px;border:2px dashed var(--line);border-radius:12px;color:var(--muted);font-weight:600;cursor:pointer;overflow:hidden}
-.photobox .pi{font-size:30px} .photobox.has{border-style:solid;padding:0} .photobox img{width:100%;height:100%;object-fit:cover}
 .wheelwrap{position:relative;height:220px;border-radius:12px;background:var(--bg);overflow:hidden}
 .wheel{height:100%;overflow-y:scroll;scroll-snap-type:y mandatory;padding:88px 0;-webkit-overflow-scrolling:touch;scrollbar-width:none;
   -webkit-mask-image:linear-gradient(transparent,#000 30%,#000 70%,transparent);mask-image:linear-gradient(transparent,#000 30%,#000 70%,transparent)}
@@ -254,9 +252,21 @@ nav.tabs a{font-size:10.5px;padding:8px 1px 9px;white-space:nowrap}
 .fillrow{display:flex;align-items:center;gap:12px}
 .fthumb{width:54px;height:54px;border-radius:10px;overflow:hidden;flex:none;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:22px}
 .fthumb img{width:100%;height:100%;object-fit:cover}
-.photoview{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .25s}
-.photoview.show{opacity:1} .photoview img{max-width:96vw;max-height:90vh;border-radius:8px}
-.photoview button{position:absolute;top:calc(14px + env(safe-area-inset-top));right:16px;color:#fff;font-size:30px;width:44px;height:44px}
+.fuelseg{margin-bottom:10px}
+.addphoto{display:flex;flex-direction:column;align-items:center;gap:2px;padding:18px;border:2px dashed var(--line);cursor:pointer;text-align:center}
+.addphoto .pi{font-size:30px} .addphoto:active{background:var(--accent-soft)}
+.rgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.rc{position:relative;aspect-ratio:3/4;border-radius:12px;overflow:hidden;background:var(--card);border:1px solid var(--line)}
+.rcimg{display:block;width:100%;height:100%} .rcimg img{width:100%;height:100%;object-fit:cover;display:block}
+.rcd{position:absolute;left:6px;bottom:6px;font-size:11px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);padding:2px 7px;border-radius:99px}
+.rcdel{position:absolute;top:5px;right:5px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:18px;line-height:28px}
+.photoview{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .25s}
+.photoview.show{opacity:1} .photoview img{max-width:96vw;max-height:76vh;border-radius:8px;object-fit:contain}
+.photoview .pvclose{position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;color:#fff;font-size:30px;width:44px;height:44px}
+.pvbar{position:absolute;top:calc(14px + env(safe-area-inset-top));left:0;right:60px;display:flex;align-items:center;justify-content:center;gap:14px;color:#fff;font-size:14px;font-weight:600}
+.pvbar button{color:#fff;font-size:26px;width:40px;height:40px} .pvbar button:disabled{opacity:.25}
+.pvdel{position:absolute;bottom:calc(24px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--gym);color:#fff;font-weight:700;padding:11px 22px;border-radius:99px}
+#toast.act{display:flex;align-items:center;gap:12px;pointer-events:auto} #toast button{color:#7da2ff;font-weight:800;font-size:14px}
 /* итоги и сон */
 .summ .sgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 8px;text-align:center}
 .summ .sgrid b{display:block;font-size:24px;color:var(--accent);letter-spacing:-.5px}
