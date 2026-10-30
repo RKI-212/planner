@@ -1,0 +1,510 @@
+/* =====================================================================
+   ИНТЕРФЕЙС
+   ===================================================================== */
+const state = { sel: new Date(), weekParity: null, showDone: false };
+state.sel.setHours(0,0,0,0);
+const today = () => { const t=new Date(); t.setHours(0,0,0,0); return t; };
+const nowMin = () => { const n=new Date(); return n.getHours()*60+n.getMinutes(); };
+const view = document.getElementById("view");
+const hashNow = () => (location.hash||"#day").slice(1);
+
+/* ---------- хранилище на устройстве ---------- */
+const store = {
+  get(k){ try{ return localStorage.getItem(k)||""; }catch(e){ return ""; } },
+  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){} },
+  json(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch(e){ return def; } },
+  put(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+};
+const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+function dateTitle(d){ return `${WD_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`; }
+const shortDate = d => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+
+/* =====================================================================
+   ЗАДАЧИ: лабы, домашка, прочее
+   ===================================================================== */
+const LAB_ST = ["Не начата","Сделана","Отчёт готов","Сдана"];
+const HW_ST = ["Не сделано","Готово"];
+const stNames = t => t.kind==="lab" ? LAB_ST : HW_ST;
+function allTasks(){
+  const over = store.json("taskStatus", {});
+  const fromData = (DATA.tasks||[]).map(t => ({...t, src:"data", status: over[t.id]!=null ? over[t.id] : (t.status||0)}));
+  const mine = store.json("tasks", []).map(t => ({...t, src:"me"}));
+  return [...fromData, ...mine].map(t => {
+    let dueDate=null;
+    if (t.due==="next") dueDate = nextPairDate(t.subj, parseISO(t.created||iso(today())));
+    else if (t.due) dueDate = parseISO(t.due);
+    const max = stNames(t).length-1;
+    return {...t, dueDate, done: t.status>=max, max};
+  });
+}
+function setTaskStatus(id, status){
+  const mine=store.json("tasks", []); const m=mine.find(t=>t.id===id);
+  if (m){ m.status=status; store.put("tasks", mine); return; }
+  const over=store.json("taskStatus", {}); over[id]=status; store.put("taskStatus", over);
+}
+function deleteTask(id){ store.put("tasks", store.json("tasks", []).filter(t=>t.id!==id)); }
+function taskRow(t, opts={}){
+  const names=stNames(t), cls = t.done ? "done" : (t.dueDate && dayNum(t.dueDate)<dayNum(today()) ? "late" : "");
+  const due = t.dueDate ? (t.due==="next" ? `к паре ${shortDate(t.dueDate)}` : `до ${shortDate(t.dueDate)}`) : "без срока";
+  const kind = t.kind==="lab" ? "Лаба" : t.kind==="hw" ? "Домашка" : "Задача";
+  return `<div class="task ${cls}">
+    <button class="tstat s${t.status} ${t.kind}" data-task="${esc(t.id)}" data-next="${(t.status+1)%names.length}" aria-label="Сменить статус">${t.done?"✓":t.status>0?t.status:""}</button>
+    <div class="tbody"><div class="tt1">${esc(t.title)}</div>
+      <div class="tt2">${kind} · ${esc(t.subj)}${opts.noDue?"":" · "+due} · <b>${names[t.status]}</b></div></div>
+    ${t.src==="me" && opts.del ? `<button class="tdel" data-del="${esc(t.id)}" aria-label="Удалить">×</button>`:""}
+  </div>`;
+}
+
+/* =====================================================================
+   ЗАЛ: дневник
+   ===================================================================== */
+const gymLog = () => store.json("gym", {});
+// с какого дня ведётся дневник (раньше — не считаем пропуски)
+const gymSince = () => { let s=store.get("gymSince"); if(!s){ s=iso(today()); store.set("gymSince", s); } return s; };
+const saveGym = g => store.put("gym", g);
+function gymDaysBack(n){ // запланированные дни зала за последние n дней (включая сегодня)
+  const out=[]; for (let i=n-1;i>=0;i--){ const d=addDays(today(),-i); if (isGymDay(d)) out.push(d); } return out;
+}
+function gymStats(){
+  const log=gymLog(), t=today(), ev=DATA.gym.every, isDone=x=>!!(log[iso(x)]&&log[iso(x)].done);
+  let d=t; while(!isGymDay(d)) d=addDays(d,-1);
+  if (dayNum(d)===dayNum(t) && !isDone(d)) d=addDays(d,-ev);
+  let streak=0; for (let i=0;i<300 && isDone(d);i++){ streak++; d=addDays(d,-ev); }
+  const since=gymSince(); const last30=gymDaysBack(30).filter(x=>iso(x)>=since || isDone(x)), done=last30.filter(isDone).length;
+  let next=t; if (!isGymDay(t) || (log[iso(t)] && log[iso(t)].done!=null)){ next=addDays(t,1); while(!isGymDay(next)) next=addDays(next,1); }
+  return { streak, done, total:last30.length, next };
+}
+function lastExercise(name, beforeISO){
+  const log=gymLog(); const keys=Object.keys(log).filter(k=>k<beforeISO).sort().reverse();
+  for (const k of keys){ const ex=(log[k].ex||[]).find(e=>e.n.toLowerCase()===name.toLowerCase()); if (ex) return {date:k, ...ex}; }
+  return null;
+}
+function exerciseNames(){ const s=new Set(); Object.values(gymLog()).forEach(e=>(e.ex||[]).forEach(x=>s.add(x.n))); return [...s].sort(); }
+
+/* =====================================================================
+   ЖИВОЕ ВРЕМЯ ЧЕРЕЗ ЯНДЕКС
+   ===================================================================== */
+const LIVE = { loading:null, res:{}, last:0, err:"" };
+const Y = DATA.yandex;
+const addrOf = k => k==="home" ? Y.home : DATA.buildings[k].geo;
+const mapUrl = (from,to) => "https://yandex.ru/maps/?rtext="+encodeURIComponent(addrOf(from))+"~"+encodeURIComponent(addrOf(to))+"&rtt=auto";
+function loadYmaps(){
+  if (LIVE.loading) return LIVE.loading;
+  LIVE.loading = new Promise((ok,fail)=>{
+    if (!Y.apiKey) return fail(new Error("нет ключа"));
+    const sc=document.createElement("script");
+    sc.src="https://api-maps.yandex.ru/2.1/?apikey="+encodeURIComponent(Y.apiKey)+"&lang=ru_RU";
+    sc.onload=()=>window.ymaps ? ymaps.ready(()=>ok(window.ymaps)) : fail(new Error("API не загрузилось"));
+    sc.onerror=()=>fail(new Error("нет связи с Яндексом"));
+    document.head.appendChild(sc);
+  });
+  LIVE.loading.catch(()=>{ LIVE.loading=null; });
+  return LIVE.loading;
+}
+function routeMin(from,to){
+  return loadYmaps().then(ym=>new Promise((ok,fail)=>{
+    const m=new ym.multiRouter.MultiRouteModel([addrOf(from),addrOf(to)],{routingMode:"auto"});
+    const t=setTimeout(()=>fail(new Error("таймаут")),15000);
+    m.events.add("requestsuccess",()=>{ clearTimeout(t);
+      const r=m.getRoutes()[0]; if(!r) return fail(new Error("маршрут не найден"));
+      const p=r.properties.get("durationInTraffic")||r.properties.get("duration");
+      ok(Math.round(p.value/60)); });
+    m.events.add("requestfail",()=>{ clearTimeout(t); fail(new Error("ключ API не принят")); });
+  }));
+}
+const liveKey = it => it.from+">"+it.to;
+function liveFresh(it){ const r=LIVE.res[liveKey(it)]; return r && (Date.now()-r.at) < (Y.refreshMin+10)*60000 ? r : null; }
+function liveDep(it){ const r=liveFresh(it); return r && it.live==="dep" ? Math.floor(it.st - r.min - it.park - DATA.road.buffer) : null; }
+function inLiveWindow(it){ const n=nowMin(); return n>=it.t-Y.windowBeforeMin && n<=it.end; }
+function liveHtml(it, isToday){
+  if (!isToday || !inLiveWindow(it)) return "";
+  const r=liveFresh(it);
+  if (!r) return LIVE.err ? `<div class="live warn">Яндекс недоступен (${esc(LIVE.err)}). Считаю по обычному времени.</div>` : `<div class="live">Узнаю время у Яндекса…</div>`;
+  const at=new Date(r.at), upd=at.getHours()+":"+String(at.getMinutes()).padStart(2,"0");
+  if (it.live==="dep"){
+    const ld=liveDep(it), diff=it.t-ld;
+    return `<div class="live${diff>0?" warn":""}">Яндекс сейчас: ${r.min} мин в пути → выезжайте в ${fmt(ld)}${diff>0?` (на ${diff} мин раньше)`:diff<0?` (можно на ${-diff} мин позже)`:""} · обновлено ${upd}</div>`;
+  }
+  return `<div class="live">Яндекс сейчас: ${r.min} мин в пути · обновлено ${upd}</div>`;
+}
+function refreshLive(force){
+  if (!force && Date.now()-LIVE.last < 5*60000) return;
+  if (navigator.onLine===false) return;
+  const items=planDay(today()).items.filter(it=>it.from && inLiveWindow(it));
+  if (!items.length) return;
+  LIVE.last=Date.now();
+  Promise.all(items.map(it=>routeMin(it.from,it.to).then(min=>{ LIVE.res[liveKey(it)]={min, at:Date.now()}; LIVE.err=""; })
+    .catch(e=>{ LIVE.err=e.message||"ошибка"; })))
+    .then(()=>{ if(hashNow()==="day" && dayNum(state.sel)===dayNum(today())) renderDay(); });
+}
+
+/* =====================================================================
+   ДЕНЬ
+   ===================================================================== */
+function renderDay(){
+  const d=state.sel, isToday = dayNum(d)===dayNum(today()), plan=planDay(d), mon=mondayOf(d), log=gymLog();
+  let h = `<div class="strip"><button class="arr" data-shift="-7" aria-label="Предыдущая неделя">‹</button>`;
+  for (let i=0;i<7;i++){
+    const x=addDays(mon,i), pl=lessonsFor(x), has=pl.lessons.length>0, gym=isGymDay(x), g=log[iso(x)];
+    const cls=["d", dayNum(x)===dayNum(d)?"sel":"", dayNum(x)===dayNum(today())?"today":"", (!has)?"off":""].join(" ");
+    h += `<button class="${cls}" data-go="${iso(x)}"><div class="w">${WD[x.getDay()]}</div><div class="n">${x.getDate()}</div>
+      <div class="dots">${has?'<i style="background:var(--accent)"></i>':""}${gym?`<i style="background:var(--gym)${g&&g.done?"":g&&g.done===false?";opacity:.3":""}"></i>`:""}${pl.ex.length?'<i style="background:var(--warn)"></i>':""}</div></button>`;
+  }
+  h += `<button class="arr" data-shift="7" aria-label="Следующая неделя">›</button></div>`;
+  h += `<div class="dayhead"><h2>${dateTitle(d)}</h2>${isToday?`<span class="muted small">сегодня · ${parity(d)==="odd"?"нечёт.":"чёт."}</span>`:`<button class="todaybtn" data-go="${iso(today())}">Сегодня</button>`}</div>`;
+  if (isToday) h += `<div id="statusBox"></div>`;
+
+  const s=[];
+  if (plan.dep!=null) s.push(`<div class="s"><span class="muted">Выезд</span><b>${fmt(plan.dep)}</b></div>`);
+  if (plan.start!=null) s.push(`<div class="s"><span class="muted">Пары</span><b>${fmt(plan.start)}–${fmt(plan.end)}</b></div>`);
+  if (plan.home!=null) s.push(`<div class="s"><span class="muted">Дома</span><b>~${fmt(plan.home)}</b></div>`);
+  if (plan.gym) s.push(`<div class="s" style="border-color:var(--gym)"><span class="muted">Зал</span><b style="color:var(--gym)">${plan.gym.st!=null?fmt(plan.gym.st):"да"}</b></div>`);
+  if (s.length) h += `<div class="summary">${s.join("")}</div>`;
+
+  // задачи на этот день
+  const tasks=allTasks().filter(t=>!t.done);
+  const dueToday=tasks.filter(t=>t.dueDate && dayNum(t.dueDate)===dayNum(d));
+  const late = isToday ? tasks.filter(t=>t.dueDate && dayNum(t.dueDate)<dayNum(d)) : [];
+  const labSubj=new Set(plan.info.lessons.filter(l=>l.t==="ЛР").map(l=>l.s));
+  const labs=tasks.filter(t=>t.kind==="lab" && labSubj.has(t.s||t.subj) && !dueToday.includes(t));
+  if (dueToday.length||late.length||labs.length){
+    h += `<div class="card tasks"><div class="row between"><b>Учёба на этот день</b><a class="small link" href="#study">все задачи ›</a></div>`;
+    if (late.length) h += `<div class="sub warnc">Просрочено</div>`+late.map(t=>taskRow(t)).join("");
+    if (dueToday.length) h += `<div class="sub">Сдать / сделать</div>`+dueToday.map(t=>taskRow(t,{noDue:true})).join("");
+    if (labs.length) h += `<div class="sub">Несданные лабы — сегодня есть ЛР</div>`+labs.map(t=>taskRow(t)).join("");
+    h += `</div>`;
+  }
+
+  plan.info.ex.forEach(e=>{
+    if (e.kind==="holiday"||e.kind==="note")
+      h += `<div class="it"><div class="tm">!</div><div class="blk hol"><div class="t">${esc(e.title)}</div><div class="m">${esc(e.text||"")}</div></div></div>`;
+  });
+  if (plan.info.outside) h += `<div class="card empty"><div class="big">🗓</div><div>Вне семестра (расписание действует 1 сентября – 31 декабря).</div></div>`;
+  else if (!plan.bl.length && !plan.info.holiday) h += `<div class="card empty"><div class="big">☕</div><div><b>Пар нет</b></div><div class="muted small">${d.getDay()===0?"Воскресенье":"Свободный день"}</div></div>`;
+
+  h += `<div class="tl">`;
+  plan.items.forEach(it=>{
+    const cls = it.kind==="lesson" ? it.cls : it.kind;
+    const tm = it.t>=0 ? `${fmt(it.t)}${it.end>it.t && it.kind!=="road"?`<small>${fmt(it.end)}</small>`:""}` : "—";
+    let extra="";
+    if (it.from) extra = liveHtml(it, isToday) + `<a class="maplink" href="${mapUrl(it.from,it.to)}" target="_blank" rel="noopener">Маршрут в Яндекс Картах ↗</a>`;
+    if (it.kind==="gym"){
+      const g=log[iso(d)];
+      extra = `<div class="gymbtns"><button class="gb ${g&&g.done?"on":""}" data-gym="1">✓ Был</button><button class="gb miss ${g&&g.done===false?"on":""}" data-gym="0">Пропустил</button><a class="gb link" href="#gym" data-gymgo="${iso(d)}">Упражнения${g&&g.ex&&g.ex.length?` (${g.ex.length})`:""} ›</a></div>`;
+    }
+    h += `<div class="it" data-t="${it.t}" data-e="${it.end}"><div class="tm">${tm}</div><div class="blk ${cls}">
+      <div class="t">${esc(it.title)}${it.badge?`<span class="badge ${it.cls}">${it.badge}</span>`:""}</div>
+      <div class="m">${esc(it.meta||"")}</div>
+      ${(it.notes||[]).map(n=>`<div class="note">${esc(n)}</div>`).join(" ")}${extra}
+    </div></div>`;
+  });
+  h += `</div>`;
+  h += `<div class="card"><div class="row between"><b>Заметки на этот день</b><span class="muted small">на этом устройстве</span></div>
+    <textarea id="note" placeholder="Что взять с собой, перенос пары…">${esc(store.get("note:"+iso(d)))}</textarea></div>`;
+  view.innerHTML = h;
+  document.getElementById("note").addEventListener("input", e=>store.set("note:"+iso(d), e.target.value));
+  if (isToday) updateLive();
+}
+
+function updateLive(){
+  const box=document.getElementById("statusBox"); if(!box) return;
+  const n=nowMin(), plan=planDay(today());
+  document.querySelectorAll(".it[data-t]").forEach(el=>{
+    const t=+el.dataset.t, e=+el.dataset.e;
+    el.classList.toggle("past", t>=0 && e>0 && e<=n);
+    el.classList.toggle("now", t>=0 && t<=n && n<e);
+  });
+  let msg="";
+  const cur=plan.items.find(it=>it.t>=0 && it.t<=n && n<it.end);
+  const next=plan.items.find(it=>it.t>n || (it.live==="dep" && liveDep(it)!=null && liveDep(it)>n));
+  if (cur && cur.kind==="lesson") msg=`Сейчас: ${cur.title} — до ${fmt(cur.end)}`;
+  else if (next && next.live==="dep"){ const ld=liveDep(next); const t=ld!=null?ld:next.t;
+    msg = t<=n ? `Пора выезжать!` : `Выезд через ${dur(t-n)} — в ${fmt(t)}${ld!=null?" (по пробкам Яндекса)":""}`; }
+  else if (cur && cur.kind==="gap") msg=`Окно до ${fmt(cur.end)}`;
+  else if (cur && cur.kind==="gym") msg=`Зал до ${fmt(cur.end)}`;
+  else if (next) msg=`Дальше: ${next.title} в ${fmt(next.t)}`;
+  else if (plan.bl.length) msg="На сегодня пары закончились";
+  box.innerHTML = msg ? `<div class="status">${esc(msg)}</div>` : "";
+}
+
+/* =====================================================================
+   НЕДЕЛЯ
+   ===================================================================== */
+function renderWeek(){
+  const p = state.weekParity || parity(today());
+  let h = `<div class="seg"><button data-par="odd" class="${p==="odd"?"on":""}">Нечётная</button><button data-par="even" class="${p==="even"?"on":""}">Чётная</button></div>`;
+  let mon=mondayOf(today()); if (parity(mon)!==p) mon=addDays(mon,7);
+  h += `<p class="muted small" style="margin:0 2px 10px">Ближайшая: ${shortDate(mon)} – ${shortDate(addDays(mon,6))}. Нажмите на день, чтобы открыть его план.</p>`;
+  for (let i=0;i<7;i++){
+    const d=addDays(mon,i), dow=d.getDay(), raw=(DATA.schedule[p][dow]||[]), plan=planDay(d), tags=[];
+    if (plan.dep!=null) tags.push(`<span class="tag road">выезд ${fmt(plan.dep)}</span>`);
+    if (plan.gym) tags.push(`<span class="tag gym">зал${plan.gym.st!=null?" "+fmt(plan.gym.st):""}</span>`);
+    h += `<div class="card wday" data-go="${iso(d)}"><h3><span>${WD_FULL[dow]} <span class="muted small" style="font-weight:500">${d.getDate()}.${String(d.getMonth()+1).padStart(2,"0")}</span></span><span class="row">${tags.join("")}</span></h3>`;
+    if (!raw.length) h += `<div class="muted small">Пар нет</div>`;
+    raw.forEach(l=>{
+      const cls=DATA.types[l.t]||"pz";
+      const lim = l.from&&l.from>DATA.semester.from ? ` · с ${shortDate(parseISO(l.from))}` : (l.to&&l.to<DATA.semester.to? ` · до ${shortDate(parseISO(l.to))}`:"");
+      h += `<div class="wl"><span class="p">${l.p}</span><span class="tt">${l.start||DATA.pairs[l.p][0]}–${DATA.pairs[l.p][1]}</span><span>${esc(l.s)}<span class="badge ${cls}">${l.t}</span><br><span class="muted small">${esc(l.r)} · ${esc(l.tch)}${lim}</span></span></div>`;
+    });
+    plan.info.ex.forEach(e=>{ h += `<div class="small" style="color:var(--warn);margin-top:6px">⚑ ${esc(e.title)}</div>`; });
+    h += `</div>`;
+  }
+  view.innerHTML = h;
+}
+
+/* =====================================================================
+   УЧЁБА
+   ===================================================================== */
+function renderStudy(){
+  const subs=allSubjects(), tasks=allTasks(), t0=today();
+  let h=`<h2 class="sec first">Сессия</h2>`;
+  const ses=(DATA.session||[]).map(x=>({...x, d:parseISO(x.date)})).filter(x=>dayNum(x.d)>=dayNum(t0)).sort((a,b)=>a.d-b.d);
+  if (ses.length){
+    const f=ses[0], days=dayNum(f.d)-dayNum(t0);
+    h+=`<div class="card hero"><div class="big">${days}</div><div><div class="muted small">дн. до ближайшего</div><b>${esc(f.kind)}: ${esc(f.subj)}</b><div class="small muted">${shortDate(f.d)}${f.time?", "+f.time:""}${f.room?" · "+esc(f.room):""}</div></div></div>`;
+    h+=`<div class="card">${ses.map(x=>`<div class="srow"><span>${shortDate(x.d)}</span><span><b>${esc(x.kind)}</b> · ${esc(x.subj)}</span></div>`).join("")}</div>`;
+  } else {
+    const end=parseISO(DATA.semester.to), days=dayNum(end)-dayNum(t0);
+    h+=`<div class="card hero"><div class="big">${Math.max(0,days)}</div><div><div class="muted small">дн. до конца семестра</div><b>Расписания сессии пока нет</b><div class="small muted">Пришлите его в чат, когда появится — добавлю экзамены и зачёты с отсчётом.</div></div></div>`;
+  }
+
+  // лабы по предметам
+  const labSubs=subs.filter(s=>Object.values(DATA.schedule).some(p=>Object.values(p).some(ls=>ls.some(l=>l.s===s&&l.t==="ЛР"))));
+  h+=`<h2 class="sec">Лабораторные</h2><div class="card">`;
+  labSubs.forEach(s=>{
+    const ls=tasks.filter(t=>t.kind==="lab"&&t.subj===s), done=ls.filter(t=>t.done).length;
+    const pct = ls.length? Math.round(done/ls.length*100):0;
+    h+=`<div class="labrow"><div class="row between"><b>${esc(s)}</b><span class="small muted">${ls.length?`${done} из ${ls.length} сдано`:"лаб пока нет"}</span></div><div class="bar"><i style="width:${pct}%"></i></div></div>`;
+  });
+  h+=`<p class="muted small" style="margin:8px 0 0">Нажмите на кружок у лабы, чтобы сменить статус: не начата → сделана → отчёт готов → сдана.</p></div>`;
+
+  // добавить
+  h+=`<h2 class="sec">Добавить</h2><form class="card addf" id="addTask">
+    <div class="seg mini" id="kindSeg"><button type="button" data-k="lab" class="on">Лаба</button><button type="button" data-k="hw">Домашка</button><button type="button" data-k="other">Другое</button></div>
+    <select id="tSubj">${[...labSubs, ...subs.filter(s=>!labSubs.includes(s))].map(s=>`<option>${esc(s)}</option>`).join("")}</select>
+    <input id="tTitle" placeholder="Например: ЛР №3 «Циклы»" autocomplete="off">
+    <div class="row duerow"><label><input type="radio" name="due" value="next" checked> К следующей паре</label><label><input type="radio" name="due" value="date"> К дате</label><input type="date" id="tDate" min="${DATA.semester.from}" max="${DATA.semester.to}"></div>
+    <button class="primary" type="submit">Добавить</button>
+  </form>`;
+
+  // списки
+  const open=tasks.filter(t=>!t.done).sort((a,b)=>(a.dueDate?dayNum(a.dueDate):1e9)-(b.dueDate?dayNum(b.dueDate):1e9));
+  const late=open.filter(t=>t.dueDate&&dayNum(t.dueDate)<dayNum(t0)), soon=open.filter(t=>!late.includes(t));
+  const done=tasks.filter(t=>t.done);
+  h+=`<h2 class="sec">Задачи</h2>`;
+  if (!tasks.length) h+=`<div class="card muted small">Пока пусто. Добавьте лабу или домашку выше — или просто напишите в чат «по программированию 5 лаб» или «к пятнице домашка по матану».</div>`;
+  if (late.length) h+=`<div class="card"><div class="sub warnc">Просрочено</div>${late.map(t=>taskRow(t,{del:true})).join("")}</div>`;
+  if (soon.length) h+=`<div class="card"><div class="sub">Впереди</div>${soon.map(t=>taskRow(t,{del:true})).join("")}</div>`;
+  if (done.length) h+=`<div class="card"><button class="sub link" id="toggleDone">${state.showDone?"Скрыть":"Показать"} готовое (${done.length})</button>${state.showDone?done.map(t=>taskRow(t,{del:true})).join(""):""}</div>`;
+
+  // предметы
+  h+=`<h2 class="sec">Предметы</h2>`+subjectsHtml();
+  view.innerHTML=h;
+
+  let kind="lab";
+  document.querySelectorAll("#kindSeg button").forEach(b=>b.onclick=()=>{ kind=b.dataset.k; document.querySelectorAll("#kindSeg button").forEach(x=>x.classList.toggle("on",x===b)); });
+  document.getElementById("addTask").onsubmit=e=>{
+    e.preventDefault();
+    const title=document.getElementById("tTitle").value.trim(); if(!title){ document.getElementById("tTitle").focus(); return; }
+    const dueMode=document.querySelector('input[name="due"]:checked').value, date=document.getElementById("tDate").value;
+    const t={ id:uid(), kind, subj:document.getElementById("tSubj").value, title, status:0, created:iso(today()),
+      due: dueMode==="next" ? "next" : (date||null) };
+    const mine=store.json("tasks",[]); mine.push(t); store.put("tasks",mine); toast("Добавлено"); renderStudy();
+  };
+  const td=document.getElementById("toggleDone"); if(td) td.onclick=()=>{ state.showDone=!state.showDone; renderStudy(); };
+}
+
+function subjectsHtml(){
+  const map={};
+  ["odd","even"].forEach(p=>Object.entries(DATA.schedule[p]).forEach(([dow,ls])=>ls.forEach(l=>{
+    (map[l.s]=map[l.s]||{rows:[],tch:new Set()}); map[l.s].rows.push({par:p, dow:+dow, ...l}); map[l.s].tch.add(l.tch);
+  })));
+  return Object.keys(map).sort((a,b)=>map[b].rows.length-map[a].rows.length).map(n=>{
+    const m=map[n];
+    m.rows.sort((a,b)=>(a.par===b.par?0:(a.par==="odd"?-1:1))||a.dow-b.dow||a.p-b.p);
+    const nx=nextPairDate(n, addDays(today(),-1));
+    return `<details class="card subj"><summary><span><b>${esc(n)}</b><br><span class="muted small">${[...m.tch].map(esc).join(", ")}${nx?` · ближайшая ${shortDate(nx)}`:""}</span></span><span class="chip" style="background:var(--accent-soft);color:var(--accent)">${m.rows.length} пар / 2 нед</span></summary><ul>
+      ${m.rows.map(r=>`<li>${r.par==="odd"?"Нечёт.":"Чёт."} ${WD[r.dow]}, ${r.p} пара — <span class="badge ${DATA.types[r.t]}" style="margin:0">${r.t}</span> ${esc(r.r)}</li>`).join("")}</ul></details>`;
+  }).join("");
+}
+
+/* =====================================================================
+   ЗАЛ
+   ===================================================================== */
+function renderGym(){
+  const st=gymStats(), log=gymLog(), t0=today();
+  let sel = state.gymDate ? parseISO(state.gymDate) : (isGymDay(t0)?t0:null);
+  if (!sel){ const back=gymDaysBack(3).filter(x=>dayNum(x)<=dayNum(t0)); sel=back[back.length-1]; }
+  const key=iso(sel), e=log[key]||{}, pl=planDay(sel);
+  let h=`<div class="gstats">
+    <div class="gs"><b>${st.streak}</b><span>серия подряд</span></div>
+    <div class="gs"><b>${st.done}<small>/${st.total}</small></b><span>${st.total<15?"с начала дневника":"за 30 дней"}</span></div>
+    <div class="gs"><b>${shortDate(st.next).split(" ")[0]}<small> ${MONTHS[st.next.getMonth()].slice(0,3)}</small></b><span>следующий</span></div>
+  </div>`;
+  // сетка последних 28 дней
+  h+=`<div class="card"><div class="row between"><b>Последние 4 недели</b><span class="small muted">через день</span></div><div class="ggrid">`;
+  const start=addDays(mondayOf(t0),-21);
+  ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"].forEach(w=>h+=`<span class="gw">${w}</span>`);
+  for (let i=0;i<28;i++){
+    const d=addDays(start,i), g=log[iso(d)], gd=isGymDay(d), fut=dayNum(d)>dayNum(t0);
+    let c="gc"; if (gd) c+= g&&g.done ? " ok" : g&&g.done===false ? " miss" : fut||dayNum(d)===dayNum(t0) ? " plan" : iso(d)<gymSince() ? " old" : " unk";
+    if (dayNum(d)===dayNum(t0)) c+=" today"; if (dayNum(d)===dayNum(sel)) c+=" sel";
+    h+=`<button class="${c}" ${gd?`data-gsel="${iso(d)}"`:""}>${d.getDate()}</button>`;
+  }
+  h+=`</div><div class="legend small"><span><i class="lg ok"></i>был</span><span><i class="lg miss"></i>пропуск</span><span><i class="lg unk"></i>не отмечено</span><span><i class="lg plan"></i>впереди</span></div></div>`;
+
+  // тренировка
+  h+=`<div class="card"><div class="row between"><b>${dateTitle(sel)}</b>${pl.gym&&pl.gym.st!=null?`<span class="small muted">${fmt(pl.gym.st)}–${fmt(pl.gym.en)}</span>`:""}</div>
+    <div class="gymbtns"><button class="gb ${e.done?"on":""}" data-gym="1" data-gd="${key}">✓ Был</button><button class="gb miss ${e.done===false?"on":""}" data-gym="0" data-gd="${key}">Пропустил</button></div>
+    <div class="exlist">${(e.ex||[]).map((x,i)=>{ const prev=lastExercise(x.n,key);
+      return `<div class="ex"><div><b>${esc(x.n)}</b> <span class="muted">${esc(x.w||"")}${x.w&&x.r?" · ":""}${esc(x.r||"")}</span>${prev?`<div class="small muted">прошлый раз ${shortDate(parseISO(prev.date))}: ${esc(prev.w||"")}${prev.w&&prev.r?" · ":""}${esc(prev.r||"")}</div>`:""}</div><button class="tdel" data-exdel="${i}" aria-label="Удалить">×</button></div>`; }).join("")}</div>
+    <form id="exForm" class="exform">
+      <input id="exN" list="exNames" placeholder="Упражнение" autocomplete="off">
+      <datalist id="exNames">${exerciseNames().map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+      <div class="row"><input id="exW" placeholder="Вес, кг" inputmode="decimal"><input id="exR" placeholder="Подходы×повт., 4×8"></div>
+      <div id="exHint" class="small muted"></div>
+      <button class="primary" type="submit">Записать</button>
+    </form>
+    <textarea id="gNote" placeholder="Заметка к тренировке (самочувствие, что поменять)">${esc(e.note||"")}</textarea>
+  </div>`;
+
+  // история
+  const hist=Object.keys(log).filter(k=>log[k].ex&&log[k].ex.length).sort().reverse().slice(0,8);
+  if (hist.length) h+=`<h2 class="sec">История</h2>`+hist.map(k=>`<div class="card hist" data-gsel="${k}"><b>${dateTitle(parseISO(k))}</b><div class="small muted">${log[k].ex.map(x=>esc(x.n)+(x.w?" "+esc(x.w):"")).join(" · ")}</div></div>`).join("");
+
+  h+=`<h2 class="sec">Резервная копия</h2><div class="card small">Дневник зала, задачи и заметки хранятся только в этом телефоне. Время от времени сохраняйте копию — например, в «Файлы».
+    <div class="row" style="margin-top:8px;gap:8px"><button class="primary ghost" id="bkOut">Сохранить копию</button><label class="primary ghost filebtn">Восстановить<input type="file" id="bkIn" accept=".json,application/json" hidden></label></div></div>`;
+  view.innerHTML=h;
+
+  const exN=document.getElementById("exN"), hint=document.getElementById("exHint");
+  exN.addEventListener("input",()=>{ const p=exN.value.trim()&&lastExercise(exN.value.trim(), key);
+    hint.textContent = p ? `Прошлый раз (${shortDate(parseISO(p.date))}): ${p.w||""} ${p.r||""}` : ""; if(p&&!document.getElementById("exW").value) document.getElementById("exW").placeholder=p.w||"Вес, кг"; });
+  document.getElementById("exForm").onsubmit=ev=>{ ev.preventDefault();
+    const n=exN.value.trim(); if(!n){ exN.focus(); return; }
+    const g=gymLog(); const en=g[key]||{}; en.ex=en.ex||[]; en.ex.push({n, w:document.getElementById("exW").value.trim(), r:document.getElementById("exR").value.trim()});
+    if (en.done==null) en.done=true; g[key]=en; saveGym(g); state.gymDate=key; renderGym(); };
+  document.getElementById("gNote").addEventListener("input",ev=>{ const g=gymLog(); g[key]=g[key]||{}; g[key].note=ev.target.value; saveGym(g); });
+  document.getElementById("bkOut").onclick=exportBackup;
+  document.getElementById("bkIn").onchange=importBackup;
+}
+
+function exportBackup(){
+  const data={}; try{ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); data[k]=localStorage.getItem(k); } }catch(e){}
+  const blob=new Blob([JSON.stringify({app:"semestr",at:new Date().toISOString(),data},null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="semestr-backup-"+iso(today())+".json";
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1000);
+}
+function importBackup(ev){
+  const f=ev.target.files[0]; if(!f) return;
+  f.text().then(txt=>{ const j=JSON.parse(txt); if(j.app!=="semestr") throw new Error();
+    Object.entries(j.data).forEach(([k,v])=>store.set(k,v)); toast("Копия восстановлена"); route(); })
+   .catch(()=>toast("Не получилось прочитать файл"));
+}
+
+/* =====================================================================
+   ИНФО
+   ===================================================================== */
+function renderInfo(){
+  const R=DATA.road, G=DATA.gym, base=location.href.replace(/[#?].*$/,"").replace(/index\.html$/,"");
+  const ics=base+"schedule.ics", webcal=ics.replace(/^https?:/,"webcal:");
+  let h=`<h2 class="sec first">Уведомления в Календаре айфона</h2><div class="card">
+    <div class="small">Подпишитесь один раз — в Календаре появятся пары, зал и выезды с напоминаниями (за 10 минут и в момент выезда; зал — за 30 минут). Когда расписание меняется, календарь обновится сам.</div>
+    <a class="primary block" href="${webcal}">Подписаться на календарь</a>
+    <ol class="small steps"><li>Нажмите кнопку и подтвердите «Подписаться».</li><li>На экране настроек <b>выключите «Удалить уведомления»</b> — иначе напоминаний не будет.</li><li>Нажмите «Добавить». Календарь называется «Семестр КНИТУ».</li></ol>
+    <div class="small muted">Если кнопка не сработала: Настройки → Календарь → Учётные записи → Добавить → Другое → Подписной календарь, адрес:<br><code>${esc(ics)}</code> <button class="copy" data-copy="${esc(ics)}">копировать</button></div>
+  </div>
+  <h2 class="sec">Дорога из общаги (ул. Рихарда Зорге, 13В)</h2><div class="card"><table class="k">
+    <tr><th></th><th>Обычно</th><th>Час пик</th></tr>
+    <tr><td>До корпуса</td><td>${R.drive} мин</td><td>${R.drivePeak} мин</td></tr>
+    <tr><td>Парковка → аудитория</td><td colspan="2">Д, Л, М, Г — 8 мин · А, В — 10 мин</td></tr>
+    <tr><td>Запас</td><td colspan="2">${R.buffer} мин</td></tr>
+    <tr><td>Час пик</td><td colspan="2">будни 7:30–9:00 и 16:30–19:00</td></tr>
+  </table><p class="muted small" style="margin:8px 0 0">За 3 часа до выезда и в дороге приложение спрашивает у Яндекс Карт реальное время с пробками (при открытии и каждые 20 минут, пока оно открыто).</p></div>
+  <h2 class="sec">Корпуса</h2><div class="card"><table class="k">${Object.entries(DATA.buildings).map(([k,b])=>`<tr><td><b>${k}</b></td><td>${esc(b.addr)}</td></tr>`).join("")}</table></div>
+  <h2 class="sec">Зал</h2><div class="card small"><b>${esc(G.name)}</b><br>Строго через день. Тренировка ${G.workout} мин + душ/хамам ${G.after} мин; после пар сначала общага и обед. В нечётную неделю — пн, ср, пт, вс; в чётную — вт, чт, сб.</div>
+  <h2 class="sec">Особые даты</h2><div class="card"><table class="k">${DATA.exceptions.map(e=>`<tr><td style="white-space:nowrap">${shortDate(parseISO(e.date))}</td><td><b>${esc(e.title)}</b><br><span class="muted small">${esc(e.text||"")}</span></td></tr>`).join("")}</table></div>
+  <h2 class="sec">Правки</h2><div class="card small">Перенесли пару, сменилась аудитория, появилась лаба — напишите Claude в чат. Приложение и календарь обновятся сами примерно через минуту (календарь айфон проверяет реже — до пары часов).</div>
+  <p class="muted small" style="margin:12px 2px">1-я подгруппа по основам программирования, 2-я по основам ИБ. Английский — одна пара в неделю.</p>`;
+  view.innerHTML=h;
+}
+
+/* =====================================================================
+   ОБЩЕЕ
+   ===================================================================== */
+function toast(msg){ let t=document.getElementById("toast"); if(!t){ t=document.createElement("div"); t.id="toast"; document.body.appendChild(t); }
+  t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"),1800); }
+
+function animateIn(){
+  const els=view.querySelectorAll(":scope > *, .tl > .it");
+  els.forEach((el,i)=>{ if(i>18) return; el.style.setProperty("--d", (i*35)+"ms"); el.classList.add("rise"); });
+  setTimeout(()=>els.forEach(el=>el.classList.remove("rise")), 1400);
+}
+
+const VIEWS = { day:renderDay, week:renderWeek, study:renderStudy, gym:renderGym, info:renderInfo };
+function route(anim){
+  let v=hashNow(); if (v==="subjects") v="study"; if (!VIEWS[v]) v="day";
+  document.querySelectorAll("nav.tabs a").forEach(a=>a.classList.toggle("on", a.dataset.v===v));
+  VIEWS[v]();
+  const p=parity(today()); const c=document.getElementById("parityChip");
+  c.className="chip "+p; c.textContent=parityName(p);
+  window.scrollTo(0,0);
+  if (anim!==false) animateIn();
+}
+
+view.addEventListener("click", e=>{
+  const go=e.target.closest("[data-go]"), sh=e.target.closest("[data-shift]"), par=e.target.closest("[data-par]");
+  const tk=e.target.closest("[data-task]"), del=e.target.closest("[data-del]"), gb=e.target.closest("[data-gym]");
+  const gsel=e.target.closest("[data-gsel]"), gg=e.target.closest("[data-gymgo]"), exd=e.target.closest("[data-exdel]"), cp=e.target.closest("[data-copy]");
+  if (tk){ setTaskStatus(tk.dataset.task, +tk.dataset.next); route(false); return; }
+  if (del){ deleteTask(del.dataset.del); toast("Удалено"); route(false); return; }
+  if (gb){ const key=gb.dataset.gd||iso(state.sel); const g=gymLog(); g[key]=g[key]||{}; const v=gb.dataset.gym==="1";
+    g[key].done = g[key].done===v ? null : v; if (g[key].done===null) delete g[key].done; saveGym(g);
+    if (v && g[key].done) toast("Отлично, серия: "+gymStats().streak); route(false); return; }
+  if (gg){ state.gymDate=gg.dataset.gymgo; return; }
+  if (gsel){ state.gymDate=gsel.dataset.gsel; renderGym(); return; }
+  if (exd){ const key=state.gymDate||iso(today()); const g=gymLog(); if(g[key]&&g[key].ex){ g[key].ex.splice(+exd.dataset.exdel,1); saveGym(g); } renderGym(); return; }
+  if (cp){ navigator.clipboard && navigator.clipboard.writeText(cp.dataset.copy).then(()=>toast("Скопировано")).catch(()=>{}); return; }
+  if (sh){ state.sel=addDays(state.sel, +sh.dataset.shift); renderDay(); return; }
+  if (par){ state.weekParity=par.dataset.par; renderWeek(); return; }
+  if (go){ state.sel=parseISO(go.dataset.go); if (hashNow()!=="day"){ location.hash="day"; } else { renderDay(); animateIn(); } }
+});
+document.querySelector("nav.tabs").addEventListener("click", e=>{ const a=e.target.closest("a"); if(a && a.dataset.v==="gym") state.gymDate=null; });
+let tx=null, ty=null;
+view.addEventListener("touchstart", e=>{ if(hashNow()==="day" && !e.target.closest("textarea,.strip")){ tx=e.touches[0].clientX; ty=e.touches[0].clientY; } }, {passive:true});
+view.addEventListener("touchend", e=>{ if(tx==null) return; const dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty; tx=null;
+  if (Math.abs(dx)>70 && Math.abs(dx)>Math.abs(dy)*1.5){ state.sel=addDays(state.sel, dx<0?1:-1); renderDay(); } }, {passive:true});
+window.addEventListener("hashchange", ()=>route());
+setInterval(()=>{ if(hashNow()==="day") updateLive(); }, 30000);
+setInterval(()=>refreshLive(true), DATA.yandex.refreshMin*60000);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible"){ refreshLive(false); if(hashNow()==="day") updateLive(); } });
+
+/* =====================================================================
+   ЗАСТАВКА ПРИ ВХОДЕ
+   ===================================================================== */
+function splash(){
+  const sp=document.getElementById("splash"); if(!sp) return Promise.resolve();
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const h=new Date().getHours();
+  const hello = h<5?"Доброй ночи":h<12?"Доброе утро":h<17?"Добрый день":h<23?"Добрый вечер":"Доброй ночи";
+  const pl=planDay(today()), g=gymLog()[iso(today())];
+  let line;
+  if (pl.info.holiday) line="Сегодня праздник — пар нет";
+  else if (pl.dep!=null && nowMin()<pl.dep) line=`Сегодня выезд в ${fmt(pl.dep)}`;
+  else if (pl.end!=null && nowMin()<pl.end) line=`Пары до ${fmt(pl.end)}`;
+  else if (pl.gym && !(g&&g.done!=null)) line = pl.gym.st!=null ? `Сегодня зал в ${fmt(pl.gym.st)}` : "Сегодня день зала";
+  else { let n=addDays(today(),1); for(let i=0;i<10&&!lessonsFor(n).lessons.length;i++) n=addDays(n,1); const pn=planDay(n);
+    line = pn.dep!=null ? `${dayNum(n)-dayNum(today())===1?"Завтра":WD_FULL[n.getDay()]} выезд в ${fmt(pn.dep)}` : "Хорошего дня"; }
+  sp.querySelector(".sp-hello").textContent=hello;
+  sp.querySelector(".sp-line").textContent=line;
+  sp.querySelector(".sp-par").textContent=parityName(parity(today()));
+  return new Promise(res=>{
+    const done=()=>{ if(sp.classList.contains("out")) return; sp.classList.add("out"); res(); setTimeout(()=>sp.remove(), 700); };
+    sp.addEventListener("click", done);
+    setTimeout(done, reduce?300:1700);
+  });
+}
+
+route(false);
+splash().then(()=>animateIn());
+setTimeout(()=>refreshLive(true), 600);
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
