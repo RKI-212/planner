@@ -155,6 +155,8 @@ function renderDay(){
   }
   h += `<button class="arr" data-shift="7" aria-label="Следующая неделя">›</button></div>`;
   h += `<div class="dayhead"><h2>${dateTitle(d)}</h2>${isToday?`<span class="muted small">сегодня · ${parity(d)==="odd"?"нечёт.":"чёт."}</span>`:`<button class="todaybtn" data-go="${iso(today())}">Сегодня</button>`}</div>`;
+  if (isToday){ const dis=store.json("noticesDone",[]);
+    (DATA.notices||[]).filter(n=>!dis.includes(n.id)).forEach(n=>{ h += `<div class="card notice"><span>📌 ${esc(n.text)}</span><button data-notice="${n.id}">Готово</button></div>`; }); }
   if (isToday) h += `<div id="statusBox"></div>`;
 
   const s=[];
@@ -770,6 +772,8 @@ view.addEventListener("click", e=>{
   const td=e.target.closest("[data-todo]"), tdd=e.target.closest("[data-tododel]"), pay=e.target.closest("[data-pay]"), rgd=e.target.closest("[data-regdel]"),
     md=e.target.closest("[data-mdel]"), mm=e.target.closest("[data-mm]"), gh=e.target.closest("[data-gohash]"), ds=e.target.closest("[data-dsub]");
   const rerender=()=>{ const y=scrollY; route(false); scrollTo(0,y); };
+  const nt=e.target.closest("[data-notice]");
+  if (nt){ const dis=store.json("noticesDone",[]); dis.push(nt.dataset.notice); store.put("noticesDone",dis); rerender(); return; }
   if (td){ const [id,dd]=td.dataset.todo.split("|"); const done=toggleTodo(id,dd); if(done) toast("Сделано ✓"); rerender(); return; }
   if (tdd){ const all=todosAll(), t=all.find(x=>x.id===tdd.dataset.tododel); saveTodos(all.filter(x=>x!==t));
     toast("Дело удалено",{label:"Вернуть",fn:()=>{ const a2=todosAll(); a2.push(t); saveTodos(a2); rerender(); }}); rerender(); return; }
